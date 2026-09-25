@@ -1,6 +1,7 @@
 import React from 'react';
+import { Maximize2, Sparkles } from 'lucide-react';
 import { Miner, LootChest, Mission, Clan } from '../types';
-import { RARITY_STYLES, CHESTS_DATA, CLANS_DATA } from '../constants';
+import { RARITY_STYLES, CHESTS_DATA, CLANS_DATA, MISSION_TIER_STYLES } from '../constants';
 
 interface MinerFleetProps {
   miners: Miner[];
@@ -27,6 +28,7 @@ interface MinerFleetProps {
   userClan: string;
   onJoinClan: (id: string) => void;
   clanWarTimer: number;
+  onInspectMiner?: (miner: Miner) => void;
 }
 
 export const MinerFleet: React.FC<MinerFleetProps> = ({
@@ -54,6 +56,7 @@ export const MinerFleet: React.FC<MinerFleetProps> = ({
   userClan,
   onJoinClan,
   clanWarTimer,
+  onInspectMiner,
 }) => {
   return (
     <div className="col-span-12 lg:col-span-6 flex flex-col gap-5">
@@ -142,51 +145,80 @@ export const MinerFleet: React.FC<MinerFleetProps> = ({
               }`}
             >
               {/* Miner Visual Banner */}
-              <div className={`relative h-[148px] bg-gradient-to-br ${miner.color} p-[1px]`}>
-                <div className="w-full h-full bg-[#0F0F10] relative overflow-hidden">
-                  <div className="absolute inset-0 opacity-60">
-                    <div className={`absolute inset-0 bg-gradient-to-br ${miner.color} opacity-30`} />
-                    <div
-                      className="absolute inset-0"
-                      style={{
-                        backgroundImage:
-                          'repeating-linear-gradient(90deg, rgba(255,255,255,0.06) 0 1px, transparent 1px 12px), repeating-linear-gradient(0deg, rgba(255,255,255,0.04) 0 1px, transparent 1px 16px)',
-                      }}
-                    />
-                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[72%] h-[56%]">
-                      <div className="w-full h-full rounded-[8px] border border-white/15 bg-black/40 backdrop-blur flex flex-col p-2 gap-1.5">
-                        <div className="flex gap-1">
-                          <div className="w-6 h-1.5 rounded-full bg-white/20" />
-                          <div className="w-10 h-1.5 rounded-full bg-white/10" />
-                          <div className="ml-auto w-4 h-1.5 rounded-full bg-[#FF6A00]/60" />
-                        </div>
-                        <div className="grid grid-cols-4 gap-1 flex-1">
-                          {Array.from({ length: 8 }).map((_, idx) => (
-                            <div
-                              key={idx}
-                              className={`rounded-[4px] ${
-                                idx % 3 === 0 ? 'bg-white/15' : 'bg-white/5'
-                              } border border-white/5 flex items-center justify-center`}
-                            >
+              <div className={`relative h-[154px] bg-gradient-to-br ${miner.color} p-[1px]`}>
+                <div className="w-full h-full bg-[#0F0F10] relative overflow-hidden flex items-center justify-center">
+                  {miner.avatarUrl ? (
+                    <div className="w-full h-full relative flex items-center justify-center p-1.5 group-hover:scale-105 transition-transform duration-500">
+                      <img
+                        src={miner.avatarUrl}
+                        alt={miner.name}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-contain drop-shadow-[0_0_16px_rgba(245,158,11,0.25)]"
+                      />
+                      {/* Holographic foil overlay on hover */}
+                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                      
+                      {/* Inspect Avatar Lens button */}
+                      {onInspectMiner && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onInspectMiner(miner);
+                          }}
+                          className="absolute top-2 right-2 p-1.5 rounded-full bg-black/75 hover:bg-black text-white/80 hover:text-white border border-white/20 backdrop-blur transition cursor-pointer z-20 shadow-md"
+                          title="Inspect Visual Identifier & Traits"
+                        >
+                          <Maximize2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="absolute inset-0 opacity-60">
+                      <div className={`absolute inset-0 bg-gradient-to-br ${miner.color} opacity-30`} />
+                      <div
+                        className="absolute inset-0"
+                        style={{
+                          backgroundImage:
+                            'repeating-linear-gradient(90deg, rgba(255,255,255,0.06) 0 1px, transparent 1px 12px), repeating-linear-gradient(0deg, rgba(255,255,255,0.04) 0 1px, transparent 1px 16px)',
+                        }}
+                      />
+                      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[72%] h-[56%]">
+                        <div className="w-full h-full rounded-[8px] border border-white/15 bg-black/40 backdrop-blur flex flex-col p-2 gap-1.5">
+                          <div className="flex gap-1">
+                            <div className="w-6 h-1.5 rounded-full bg-white/20" />
+                            <div className="w-10 h-1.5 rounded-full bg-white/10" />
+                            <div className="ml-auto w-4 h-1.5 rounded-full bg-[#FF6A00]/60" />
+                          </div>
+                          <div className="grid grid-cols-4 gap-1 flex-1">
+                            {Array.from({ length: 8 }).map((_, idx) => (
                               <div
-                                className={`w-1 h-1 rounded-full ${
-                                  mining && miner.status === 'ONLINE'
-                                    ? 'bg-emerald-400 animate-pulse'
-                                    : 'bg-zinc-600'
-                                }`}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                        <div className="flex gap-1">
-                          <div className="h-1 flex-1 bg-[#FF6A00]/40 rounded-full" />
-                          <div className="h-1 w-8 bg-white/10 rounded-full" />
+                                key={idx}
+                                className={`rounded-[4px] ${
+                                  idx % 3 === 0 ? 'bg-white/15' : 'bg-white/5'
+                                } border border-white/5 flex items-center justify-center`}
+                              >
+                                <div
+                                  className={`w-1 h-1 rounded-full ${
+                                    mining && miner.status === 'ONLINE'
+                                      ? 'bg-emerald-400 animate-pulse'
+                                      : 'bg-zinc-600'
+                                  }`}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex gap-1">
+                            <div className="h-1 flex-1 bg-[#FF6A00]/40 rounded-full" />
+                            <div className="h-1 w-8 bg-white/10 rounded-full" />
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
-                  <div className="absolute top-2 left-2 right-2 flex justify-between">
+                  {/* Top badges */}
+                  <div className="absolute top-2 left-2 right-2 flex justify-between pointer-events-none">
                     <div
                       className={`px-2 py-0.5 rounded-full text-[10px] font-mono-num font-bold tracking-widest border backdrop-blur ${rarityConfig.bg} ${rarityConfig.border} ${rarityConfig.text}`}
                     >
@@ -208,7 +240,8 @@ export const MinerFleet: React.FC<MinerFleetProps> = ({
                     </div>
                   </div>
 
-                  <div className="absolute bottom-2 left-2 flex items-center gap-1.5">
+                  {/* Bottom metrics */}
+                  <div className="absolute bottom-2 left-2 flex items-center gap-1.5 pointer-events-none">
                     <div className="w-5 h-5 rounded-full bg-black/60 border border-white/10 flex items-center justify-center text-[10px]">
                       ⚡
                     </div>
@@ -218,7 +251,7 @@ export const MinerFleet: React.FC<MinerFleetProps> = ({
                     </div>
                   </div>
 
-                  <div className="absolute bottom-2 right-2 font-mono-num text-[10px] text-white/50">
+                  <div className="absolute bottom-2 right-2 font-mono-num text-[10px] text-white/50 pointer-events-none">
                     ID {miner.id}
                   </div>
                 </div>
@@ -228,16 +261,32 @@ export const MinerFleet: React.FC<MinerFleetProps> = ({
               <div className="p-3.5">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <div className="font-display font-bold text-[13px] text-white">{miner.name}</div>
-                    <div className="font-mono-num text-[11px] text-zinc-500 mt-0.5 flex items-center gap-2">
-                      <span className="text-white font-bold">{miner.th} TH/s</span>
-                      <span className="w-1 h-1 bg-zinc-600 rounded-full" />
-                      <span>{miner.maintenance} WAR/d</span>
-                      <span className="w-1 h-1 bg-zinc-600 rounded-full" />
-                      <span className="text-[#FF6A00]">
-                        {((miner.th * miner.condition) / 100).toFixed(0)} eff
-                      </span>
+                    <div className="flex items-center gap-2">
+                      <div className="font-display font-bold text-[13px] text-white">{miner.name}</div>
+                      {miner.avatarUrl && (
+                        <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-[9px] font-mono-num text-emerald-400 font-bold flex items-center gap-1">
+                          <Sparkles className="w-2.5 h-2.5" />
+                          <span>AVATAR</span>
+                        </span>
+                      )}
                     </div>
+                    {miner.visualTraits ? (
+                      <div className="font-mono-num text-[10px] text-purple-300 mt-0.5 flex items-center gap-1.5">
+                        <span className="truncate max-w-[170px]">{miner.visualTraits.coreType}</span>
+                        <span>•</span>
+                        <span className="text-zinc-500">{miner.visualTraits.hashSignature}</span>
+                      </div>
+                    ) : (
+                      <div className="font-mono-num text-[11px] text-zinc-500 mt-0.5 flex items-center gap-2">
+                        <span className="text-white font-bold">{miner.th} TH/s</span>
+                        <span className="w-1 h-1 bg-zinc-600 rounded-full" />
+                        <span>{miner.maintenance} WAR/d</span>
+                        <span className="w-1 h-1 bg-zinc-600 rounded-full" />
+                        <span className="text-[#FF6A00]">
+                          {((miner.th * miner.condition) / 100).toFixed(0)} eff
+                        </span>
+                      </div>
+                    )}
                   </div>
                   <div className="text-right">
                     <div className="font-mono-num text-[11px] text-[#FF6A00] font-bold">
@@ -438,50 +487,110 @@ export const MinerFleet: React.FC<MinerFleetProps> = ({
         </div>
 
         <div className="grid md:grid-cols-3 gap-3">
-          {missions.map((m) => (
-            <div
-              key={m.id}
-              className="rounded-[14px] bg-black/40 border border-white/[0.06] p-3 flex flex-col"
-            >
-              <div className="flex justify-between">
-                <div className="font-display font-bold text-[12px] text-white">{m.title}</div>
-                <div
-                  className={`font-mono-num text-[10px] px-2 py-0.5 rounded-full border ${
-                    m.progress >= m.target
-                      ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                      : 'bg-white/5 border-white/10 text-zinc-500'
-                  }`}
-                >
-                  {m.progress >= m.target ? 'DONE' : `${m.progress.toFixed(0)}/${m.target}`}
+          {missions.map((m) => {
+            const tierStyle = MISSION_TIER_STYLES[m.tier || 'Common'];
+            return (
+              <div
+                key={m.id}
+                className={`rounded-[16px] border p-3.5 flex flex-col transition duration-200 ${tierStyle.cardHighlight}`}
+              >
+                {/* Visual Badge Header: Tier, Difficulty & Reward Multiplier */}
+                <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {/* Tier Badge */}
+                    <span
+                      className={`px-2 py-0.5 rounded-full font-mono-num text-[9px] font-bold tracking-wider border flex items-center gap-1 shadow-sm ${tierStyle.badge}`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${tierStyle.dot}`} />
+                      {m.tier.toUpperCase()}
+                    </span>
+
+                    {/* Difficulty Badge */}
+                    <span className="px-1.5 py-0.5 rounded-md bg-black/50 border border-white/10 font-mono-num text-[9px] text-zinc-400">
+                      {m.difficulty}
+                    </span>
+
+                    {/* Potential Reward Multiplier Badge */}
+                    <span
+                      className={`px-1.5 py-0.5 rounded-md font-mono-num text-[9px] font-bold border flex items-center gap-0.5 ${tierStyle.multBg}`}
+                      title={`Potential reward multiplier: ${m.multiplier}`}
+                    >
+                      <span>⚡</span>
+                      <span>{m.multiplier} MULT</span>
+                    </span>
+                  </div>
+
+                  {/* Target Completion Status */}
+                  <div
+                    className={`font-mono-num text-[10px] px-2 py-0.5 rounded-full border shrink-0 ${
+                      m.progress >= m.target
+                        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 font-bold'
+                        : 'bg-white/5 border-white/10 text-zinc-500'
+                    }`}
+                  >
+                    {m.progress >= m.target ? 'DONE' : `${m.progress.toFixed(0)}/${m.target}`}
+                  </div>
+                </div>
+
+                {/* Mission Title & Description */}
+                <div>
+                  <div className="font-display font-bold text-[13px] text-white flex items-center gap-1.5">
+                    <span>{m.title}</span>
+                  </div>
+                  <div className="font-mono-num text-[11px] text-zinc-400 mt-0.5 leading-[1.4]">
+                    {m.desc}
+                  </div>
+                </div>
+
+                {/* Progress Bar */}
+                <div className="mt-3 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full ${
+                      m.tier === 'Legendary'
+                        ? 'bg-gradient-to-r from-amber-500 to-orange-500'
+                        : m.tier === 'Rare'
+                        ? 'bg-gradient-to-r from-blue-500 to-indigo-500'
+                        : 'bg-[#FF6A00]'
+                    }`}
+                    style={{ width: `${Math.min(100, (m.progress / m.target) * 100)}%` }}
+                  />
+                </div>
+
+                {/* Bottom Row: Rewards with Tier Multiplier Callout & Action */}
+                <div className="mt-3 pt-2 border-t border-white/[0.05] flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono-num text-[12px] text-[#FF6A00] font-bold">
+                        +{m.reward} WAR
+                      </span>
+                      <span
+                        className={`font-mono-num text-[9px] px-1 py-0.2 rounded border font-semibold ${tierStyle.multBg}`}
+                      >
+                        {m.multiplier}
+                      </span>
+                    </div>
+                    <span className="font-mono-num text-[9px] text-zinc-500">
+                      {m.tier} Tier Reward
+                    </span>
+                  </div>
+
+                  {m.claimed ? (
+                    <span className="font-mono-num text-[10px] text-zinc-400 bg-white/5 px-2.5 py-1 rounded-full border border-white/10">
+                      CLAIMED
+                    </span>
+                  ) : (
+                    <button
+                      disabled={m.progress < m.target}
+                      onClick={() => onClaimMission(m.id)}
+                      className="h-7 px-3.5 rounded-full bg-white text-black font-bold text-[11px] disabled:opacity-30 cursor-pointer hover:bg-zinc-200 transition shadow"
+                    >
+                      Claim
+                    </button>
+                  )}
                 </div>
               </div>
-              <div className="font-mono-num text-[11px] text-zinc-500 mt-1">{m.desc}</div>
-
-              <div className="mt-3 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-[#FF6A00]"
-                  style={{ width: `${Math.min(100, (m.progress / m.target) * 100)}%` }}
-                />
-              </div>
-
-              <div className="mt-3 flex items-center justify-between">
-                <span className="font-mono-num text-[11px] text-[#FF6A00] font-bold">
-                  +{m.reward} WAR
-                </span>
-                {m.claimed ? (
-                  <span className="font-mono-num text-[10px] text-zinc-600">CLAIMED</span>
-                ) : (
-                  <button
-                    disabled={m.progress < m.target}
-                    onClick={() => onClaimMission(m.id)}
-                    className="h-7 px-3 rounded-full bg-white text-black font-bold text-[11px] disabled:opacity-30 cursor-pointer hover:bg-zinc-200 transition"
-                  >
-                    Claim
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

@@ -1,23 +1,132 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Miner, TxItem, Mission, VeLock, ToastMsg, Rarity } from './types';
+import {
+  Miner,
+  TxItem,
+  Mission,
+  VeLock,
+  ToastMsg,
+  Rarity,
+  CompletedMissionRecord,
+  SolanaWalletAccount,
+  UserProfile,
+  UserSettings,
+  ReferralRecord,
+  AppPage,
+} from './types';
 import {
   INITIAL_FLEET,
   NEXT_RARITY_MAP,
   CHESTS_DATA,
   LAB_UPGRADES_DATA,
+  INITIAL_COMPLETED_MISSIONS,
   generateHash,
 } from './constants';
 import { Header } from './components/Header';
+import { Navigation } from './components/Navigation';
 import { MiningConsole } from './components/MiningConsole';
 import { MinerFleet } from './components/MinerFleet';
 import { BurnDashboard } from './components/BurnDashboard';
 import { TabsSection } from './components/TabsSection';
 import { WalletModal } from './components/WalletModal';
+import { MintingImageSynthesisModal } from './components/MintingImageSynthesisModal';
 import { ToastContainer } from './components/ToastContainer';
+import { generateMinerAvatarUrl } from './utils/minerAvatarGenerator';
+import {
+  generateInitialSolanaWallet,
+  createRandomSolanaKeypair,
+  exportSolanaPrivateKey,
+} from './utils/solana';
+
+const INITIAL_SETTINGS: UserSettings = {
+  clan: 'alpha',
+  themeColor: 'solana-purple',
+  currency: 'USD',
+  numberFormat: 'compact',
+  networkCluster: 'devnet',
+  rpcEndpoint: 'https://api.devnet.solana.com',
+  autoAirdropOnLow: true,
+  priorityFeeLevel: 'normal',
+  requirePinForExport: false,
+  securityPin: '7788',
+  autoRepairThreshold: 30,
+  autoCompoundStaking: false,
+  soundEffects: true,
+  hashrateAlerts: true,
+  compactFleetView: false,
+  neonGlowEffects: true,
+};
+
+const INITIAL_REFERRALS: ReferralRecord[] = [
+  {
+    id: 'ref-1',
+    refereeHandle: 'CyberViper_99',
+    refereeAddress: '9xQe8Rk8Vb4aBz2p',
+    date: 'Sep 21, 2026',
+    bonusAmount: 750,
+    bonusSol: 0.15,
+    status: 'completed',
+    rigMinted: 'War Miner #1084 (Epic)',
+    rewardTier: 'Epic',
+    txHash: '5KnpL93b7wQm1x8v',
+  },
+  {
+    id: 'ref-2',
+    refereeHandle: 'NeonDrifter',
+    refereeAddress: '4kLm2Pq9Y8pTx5zN',
+    date: 'Sep 14, 2026',
+    bonusAmount: 500,
+    bonusSol: 0.10,
+    status: 'completed',
+    rigMinted: 'War Miner #942 (Rare)',
+    rewardTier: 'Rare',
+    txHash: '3HxvJ27c4yRt8m2q',
+  },
+  {
+    id: 'ref-3',
+    refereeHandle: 'SolHashMaster',
+    refereeAddress: '7vBn6Tr3X2mKq9pL',
+    date: 'Aug 29, 2026',
+    bonusAmount: 450,
+    bonusSol: 0.05,
+    status: 'completed',
+    rigMinted: 'War Miner #811 (Epic)',
+    rewardTier: 'Epic',
+    txHash: '8ZkwM14d5vPn3s7j',
+  },
+  {
+    id: 'ref-4',
+    refereeHandle: 'ZeroByte_X',
+    refereeAddress: '3wRt9Lm2K9sDc4vF',
+    date: 'Aug 10, 2026',
+    bonusAmount: 150,
+    bonusSol: 0.05,
+    status: 'completed',
+    rigMinted: 'War Miner #715 (Common)',
+    rewardTier: 'Common',
+    txHash: '2YpqB48g7uLk1z9m',
+  },
+];
+
+const INITIAL_PROFILE: UserProfile = {
+  handle: 'SolanaValkyrie',
+  title: 'Elite Hash-Smith',
+  bio: 'Mining blocks at the speed of Solana light ⚡ Proof-of-War Veteran',
+  avatar: 'valkyrie',
+  level: 14,
+  xp: 8450,
+  xpNextLevel: 10000,
+  joinedBlock: 842901,
+  joinedDate: 'Jan 2026',
+  achievementsUnlocked: ['sol_pioneer', 'streak_flame', 'vewar_governor'],
+  settings: INITIAL_SETTINGS,
+  referralCode: 'VALKYRIE-SOL-88',
+  referralHistory: INITIAL_REFERRALS,
+};
 
 export default function App() {
   const [connected, setConnected] = useState(false);
   const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const [walletModalTab, setWalletModalTab] = useState<'create' | 'import' | 'connect' | 'wallets'>('create');
   const [connectingWallet, setConnectingWallet] = useState<string | null>(null);
   const [address, setAddress] = useState('');
   const [balance, setBalance] = useState(12450.2);
@@ -26,7 +135,18 @@ export default function App() {
   const [miners, setMiners] = useState<Miner[]>(INITIAL_FLEET);
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
 
-  const [activeTab, setActiveTab] = useState<'mining' | 'market' | 'upgrades' | 'stats' | 'history'>('mining');
+  // Minting Image Generation Synthesis State
+  const [synthesizingMiner, setSynthesizingMiner] = useState<Miner | null>(null);
+  const [synthesisModalOpen, setSynthesisModalOpen] = useState(false);
+
+  // Solana Wallets & Operator Profile State
+  const [wallets, setWallets] = useState<SolanaWalletAccount[]>(() => {
+    return [generateInitialSolanaWallet('Solana Main Rig Vault')];
+  });
+  const [activeWalletId, setActiveWalletId] = useState<string | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile>(INITIAL_PROFILE);
+
+  const [activeTab, setActiveTab] = useState<AppPage>('mining');
   const [marketRarity, setMarketRarity] = useState<'All' | Rarity>('All');
   const [history, setHistory] = useState<TxItem[]>([
     { id: '1', time: new Date().toLocaleTimeString(), type: 'CLAIM', amount: 12.4, desc: 'Vault claim', hash: generateHash() },
@@ -47,12 +167,83 @@ export default function App() {
   const [dayBurned, setDayBurned] = useState(124502);
   const [halvingDays] = useState(178);
 
-  const [missions, setMissions] = useState<Mission[]>([
-    { id: 'mine', title: 'Mine 2h', desc: 'Keep rigs online 2h', progress: 68, target: 120, reward: 20, claimed: false },
-    { id: 'upgrade', title: 'Upgrade 1 miner', desc: 'Level up any miner', progress: 0, target: 1, reward: 50, claimed: false },
-    { id: 'stake', title: 'Stake 100 WAR', desc: 'Lock WAR to veWAR', progress: 0, target: 100, reward: 30, claimed: false },
-  ]);
-  const [streak] = useState(5);
+  const INITIAL_MISSIONS: Mission[] = [
+    {
+      id: 'mine',
+      title: 'Mine 2h',
+      desc: 'Keep rigs online 2h',
+      progress: 68,
+      target: 120,
+      reward: 20,
+      claimed: false,
+      tier: 'Common',
+      difficulty: 'Standard',
+      multiplier: '1.0x',
+    },
+    {
+      id: 'upgrade',
+      title: 'Upgrade 1 miner',
+      desc: 'Level up any miner',
+      progress: 0,
+      target: 1,
+      reward: 50,
+      claimed: false,
+      tier: 'Rare',
+      difficulty: 'Challenging',
+      multiplier: '1.5x',
+    },
+    {
+      id: 'stake',
+      title: 'Stake 100 WAR',
+      desc: 'Lock WAR to veWAR',
+      progress: 0,
+      target: 100,
+      reward: 90,
+      claimed: false,
+      tier: 'Legendary',
+      difficulty: 'Elite',
+      multiplier: '3.0x',
+    },
+  ];
+
+  const enrichMissionsWithTiers = (items: any[]): Mission[] => {
+    return items.map((m) => {
+      if (m.id === 'mine') {
+        return {
+          ...m,
+          tier: m.tier || 'Common',
+          difficulty: m.difficulty || 'Standard',
+          multiplier: m.multiplier || '1.0x',
+        };
+      }
+      if (m.id === 'upgrade') {
+        return {
+          ...m,
+          tier: m.tier || 'Rare',
+          difficulty: m.difficulty || 'Challenging',
+          multiplier: m.multiplier || '1.5x',
+        };
+      }
+      if (m.id === 'stake') {
+        return {
+          ...m,
+          tier: m.tier || 'Legendary',
+          difficulty: m.difficulty || 'Elite',
+          multiplier: m.multiplier || '3.0x',
+        };
+      }
+      return {
+        ...m,
+        tier: m.tier || 'Common',
+        difficulty: m.difficulty || 'Standard',
+        multiplier: m.multiplier || '1.0x',
+      };
+    });
+  };
+
+  const [missions, setMissions] = useState<Mission[]>(INITIAL_MISSIONS);
+  const [completedMissions, setCompletedMissions] = useState<CompletedMissionRecord[]>(INITIAL_COMPLETED_MISSIONS);
+  const [streak, setStreak] = useState(5);
   const [userClan, setUserClan] = useState('alpha');
   const [leaderboardTab, setLeaderboardTab] = useState<'hash' | 'burn' | 'clan'>('hash');
 
@@ -89,12 +280,23 @@ export default function App() {
         }
         if (parsed.history) setHistory(parsed.history);
         if (parsed.veLock) setVeLock(parsed.veLock);
-        if (parsed.missions) setMissions(parsed.missions);
+        if (parsed.missions) setMissions(enrichMissionsWithTiers(parsed.missions));
+        if (parsed.completedMissions) setCompletedMissions(parsed.completedMissions);
+        if (parsed.streak !== undefined) setStreak(parsed.streak);
         if (parsed.userClan) setUserClan(parsed.userClan);
         if (parsed.lpStaked) setLpStaked(parsed.lpStaked);
         if (parsed.autoCompound !== undefined) setAutoCompound(parsed.autoCompound);
         if (parsed.pendingRewards) setPendingRewards(parsed.pendingRewards);
         if (parsed.labUpgrades) setLabUpgrades(parsed.labUpgrades);
+        if (parsed.wallets && Array.isArray(parsed.wallets) && parsed.wallets.length) {
+          setWallets(parsed.wallets);
+        }
+        if (parsed.activeWalletId) {
+          setActiveWalletId(parsed.activeWalletId);
+        }
+        if (parsed.userProfile) {
+          setUserProfile(parsed.userProfile);
+        }
       }
     } catch {
       // Ignored
@@ -110,19 +312,41 @@ export default function App() {
       history: history.slice(0, 40),
       veLock,
       missions,
+      completedMissions,
       streak,
       userClan,
       lpStaked,
       autoCompound,
       pendingRewards,
       labUpgrades,
+      wallets,
+      activeWalletId,
+      userProfile,
     };
     try {
       localStorage.setItem('war_mining_v2_state', JSON.stringify(payload));
     } catch {
       // Ignored
     }
-  }, [balance, miners, address, connected, history, veLock, missions, streak, userClan, lpStaked, autoCompound, pendingRewards, labUpgrades]);
+  }, [
+    balance,
+    miners,
+    address,
+    connected,
+    history,
+    veLock,
+    missions,
+    completedMissions,
+    streak,
+    userClan,
+    lpStaked,
+    autoCompound,
+    pendingRewards,
+    labUpgrades,
+    wallets,
+    activeWalletId,
+    userProfile,
+  ]);
 
   // Ambient tickers
   useEffect(() => {
@@ -154,11 +378,6 @@ export default function App() {
 
   const rawTH = useMemo(() => miners.reduce((acc, m) => acc + m.th, 0), [miners]);
 
-  const dailyWarRate = useMemo(
-    () => miners.filter((m) => m.status === 'ONLINE').reduce((acc, m) => acc + (m.dailyWar * m.condition) / 100, 0),
-    [miners]
-  );
-
   const totalMaintenance = useMemo(() => miners.reduce((acc, m) => acc + m.maintenance, 0), [miners]);
 
   const avgEfficiency = useMemo(() => {
@@ -166,6 +385,21 @@ export default function App() {
     if (!online.length) return 28;
     return online.reduce((acc, m) => acc + m.wth, 0) / online.length;
   }, [miners]);
+
+  // Active Solana Wallet & SOL balance
+  const activeWallet = useMemo(() => {
+    if (!wallets.length) return null;
+    return wallets.find((w) => w.id === activeWalletId) || wallets[0];
+  }, [wallets, activeWalletId]);
+
+  const solBalance = activeWallet?.solBalance || 2.5;
+
+  // Sync address with active Solana wallet
+  useEffect(() => {
+    if (activeWallet && (!address || !address.length)) {
+      setAddress(activeWallet.publicKey);
+    }
+  }, [activeWallet, address]);
 
   // Boost multipliers
   const veBoost = useMemo(() => {
@@ -186,7 +420,19 @@ export default function App() {
 
   const lpBoost = lpStaked ? 0.05 : 0;
   const clanBoost = 0.05;
-  const totalBoost = veBoost + lpBoost + clanBoost;
+  const streakBoost = useMemo(() => {
+    // Daily streak reward bonus: 2% per active day (e.g. 5 days = +10% bonus, capped at 50%)
+    return Math.min(0.50, Math.max(0, streak * 0.02));
+  }, [streak]);
+  const totalBoost = veBoost + lpBoost + clanBoost + streakBoost;
+
+  const dailyWarRate = useMemo(
+    () =>
+      miners
+        .filter((m) => m.status === 'ONLINE')
+        .reduce((acc, m) => acc + (m.dailyWar * m.condition) / 100, 0) * (1 + totalBoost),
+    [miners, totalBoost]
+  );
 
   // Mining cycle loop
   useEffect(() => {
@@ -248,6 +494,17 @@ export default function App() {
     };
   }, [mining, effectiveTH, avgEfficiency, totalBoost, totalMaintenance, balance]);
 
+  // Daily streak check-in handler
+  const handleCheckInStreak = () => {
+    setStreak((s) => {
+      const next = s + 1;
+      const boostPct = Math.min(50, next * 2);
+      addToast(`🔥 DAILY STREAK CHECK-IN // DAY ${next} (+${boostPct}% MINING BONUS)`);
+      recordTx('STREAK', 0, `Daily check-in streak advanced to day ${next} (+${boostPct}% mining multiplier)`);
+      return next;
+    });
+  };
+
   // Toast and Tx Helpers
   const addToast = (text: string, type: 'success' | 'info' | 'error' = 'success') => {
     const id = Date.now() + Math.random();
@@ -268,20 +525,131 @@ export default function App() {
     return tx.hash;
   };
 
-  // Wallet Actions
+  // Solana Wallet Actions
   const handleConnectWallet = (walletName: string) => {
     setConnectingWallet(walletName);
     setTimeout(() => {
-      const generated = `0xAri${Math.floor(Math.random() * 9000) + 1000}...${Math.floor(
-        Math.random() * 9000
-      )}`;
-      setAddress(generated);
+      // Create or bind authentic Solana Ed25519 Keypair
+      const kp = createRandomSolanaKeypair();
+      const pub = kp.publicKey.toBase58();
+      const sec = exportSolanaPrivateKey(kp);
+
+      const newW: SolanaWalletAccount = {
+        id: `sol_${Date.now()}`,
+        name: `${walletName} Account`,
+        publicKey: pub,
+        secretKey: sec,
+        solBalance: 2.5,
+        warBalance: balance || 12450.2,
+        createdAt: Date.now(),
+        network: 'devnet',
+      };
+
+      setWallets((prev) => [newW, ...prev]);
+      setActiveWalletId(newW.id);
+      setAddress(pub);
       setConnected(true);
       setWalletModalOpen(false);
       setConnectingWallet(null);
-      addToast(`${walletName} connected // SECURE LINK ESTABLISHED`);
-      recordTx('CONNECT', 0, `Connected ${walletName} ${generated}`);
+      addToast(`${walletName} connected // SOLANA ED25519 VERIFIED`);
+      recordTx('CONNECT', 0, `Connected ${walletName} (${pub.slice(0, 8)}...)`);
     }, 800);
+  };
+
+  const handleSaveNewWallet = (newWallet: SolanaWalletAccount) => {
+    setWallets((prev) => [newWallet, ...prev.filter((w) => w.id !== newWallet.id)]);
+    setActiveWalletId(newWallet.id);
+    setAddress(newWallet.publicKey);
+    setConnected(true);
+    setBalance(newWallet.warBalance);
+    addToast(`SOLANA WALLET ACTIVATED // ${newWallet.name}`);
+    recordTx('SOL-WALLET-CREATE', 0, `Created Solana Keypair ${newWallet.publicKey.slice(0, 8)}...`);
+    setUserProfile((prev) => ({
+      ...prev,
+      xp: prev.xp + 500,
+      achievementsUnlocked: Array.from(new Set([...prev.achievementsUnlocked, 'sol_pioneer'])),
+    }));
+  };
+
+  const handleSelectWallet = (walletId: string) => {
+    const target = wallets.find((w) => w.id === walletId);
+    if (!target) return;
+    setActiveWalletId(walletId);
+    setAddress(target.publicKey);
+    setConnected(true);
+    addToast(`SWITCHED TO ${target.name.toUpperCase()}`);
+    recordTx('WALLET-SWITCH', 0, `Switched active Solana wallet to ${target.name}`);
+  };
+
+  const handleAirdropSol = (walletId: string) => {
+    setWallets((prev) =>
+      prev.map((w) => (w.id === walletId ? { ...w, solBalance: +(w.solBalance + 1.0).toFixed(3) } : w))
+    );
+    addToast('+1.0 DEVNET SOL AIRDROP RECEIVED // FAUCET SUCCESS');
+    recordTx('SOL-AIRDROP', 1.0, 'Devnet Faucet airdrop +1.0 SOL');
+  };
+
+  const handleDeleteWallet = (walletId: string) => {
+    setWallets((prev) => prev.filter((w) => w.id !== walletId));
+    if (activeWalletId === walletId) {
+      const remaining = wallets.filter((w) => w.id !== walletId);
+      if (remaining.length > 0) {
+        setActiveWalletId(remaining[0].id);
+        setAddress(remaining[0].publicKey);
+      } else {
+        setActiveWalletId(null);
+        setConnected(false);
+        setAddress('');
+      }
+    }
+    addToast('SOLANA KEYPAIR REMOVED FROM BROWSER', 'info');
+  };
+
+  const handleSendSolanaTx = (recipient: string, amount: number, token: 'SOL' | 'WAR'): boolean => {
+    if (token === 'SOL') {
+      if (!activeWallet || activeWallet.solBalance < amount) {
+        addToast('INSUFFICIENT SOL BALANCE', 'error');
+        return false;
+      }
+      setWallets((prev) =>
+        prev.map((w) =>
+          w.id === activeWallet.id ? { ...w, solBalance: +(w.solBalance - amount).toFixed(3) } : w
+        )
+      );
+      recordTx('SOL-SEND', -amount, `Transferred ${amount} SOL to ${recipient.slice(0, 6)}...`);
+      addToast(`TRANSFERRED ${amount} SOL // SOLANA TX CONFIRMED`);
+    } else {
+      if (balance < amount) {
+        addToast('INSUFFICIENT $WAR BALANCE', 'error');
+        return false;
+      }
+      setBalance((b) => +(b - amount).toFixed(2));
+      setWallets((prev) =>
+        prev.map((w) =>
+          w.id === (activeWallet?.id || '') ? { ...w, warBalance: +(w.warBalance - amount).toFixed(2) } : w
+        )
+      );
+      recordTx('WAR-SEND', -amount, `Sent ${amount} WAR to ${recipient.slice(0, 6)}...`);
+      addToast(`TRANSFERRED ${amount} $WAR // ON SOLANA DEVNET`);
+    }
+    return true;
+  };
+
+  const handleUpdateProfile = (updated: Partial<UserProfile>) => {
+    setUserProfile((prev) => {
+      const mergedSettings = updated.settings
+        ? { ...(prev.settings || INITIAL_SETTINGS), ...updated.settings }
+        : prev.settings;
+      if (mergedSettings?.clan) {
+        setUserClan(mergedSettings.clan);
+      }
+      return {
+        ...prev,
+        ...updated,
+        settings: mergedSettings,
+      };
+    });
+    addToast('OPERATOR PROFILE & SETTINGS SAVED', 'success');
   };
 
   const handleDisconnect = () => {
@@ -441,6 +809,19 @@ export default function App() {
       status: 'ONLINE',
     };
 
+    if (rarity === 'Legendary' || rarity === 'Epic') {
+      const { avatarUrl, traits } = generateMinerAvatarUrl({
+        id: newMiner.id,
+        name: newMiner.name,
+        rarity,
+        th: newMiner.th,
+      });
+      newMiner.avatarUrl = avatarUrl;
+      newMiner.visualTraits = traits;
+      setSynthesizingMiner(newMiner);
+      setSynthesisModalOpen(true);
+    }
+
     setMiners((prev) => [newMiner, ...prev]);
     addToast(`MINTED ${newMiner.name} // ${rarity.toUpperCase()} // DEPLOYED`);
     recordTx('MINT', -cost, `Minted ${newMiner.name} ${rarity}`);
@@ -541,6 +922,19 @@ export default function App() {
       status: 'ONLINE',
     };
 
+    if (nextRarity === 'Legendary' || nextRarity === 'Epic') {
+      const { avatarUrl, traits } = generateMinerAvatarUrl({
+        id: newMergedMiner.id,
+        name: newMergedMiner.name,
+        rarity: nextRarity,
+        th: newMergedMiner.th,
+      });
+      newMergedMiner.avatarUrl = avatarUrl;
+      newMergedMiner.visualTraits = traits;
+      setSynthesizingMiner(newMergedMiner);
+      setSynthesisModalOpen(true);
+    }
+
     setMiners((prev) => [newMergedMiner, ...prev.filter((m) => !mergeSelected.includes(m.id))]);
     setMergeSelected([]);
     setMergeMode(false);
@@ -595,6 +989,19 @@ export default function App() {
         condition: 100,
         status: 'ONLINE',
       };
+
+      if (chosenRarity === 'Legendary' || chosenRarity === 'Epic') {
+        const { avatarUrl, traits } = generateMinerAvatarUrl({
+          id: newMiner.id,
+          name: newMiner.name,
+          rarity: chosenRarity,
+          th: newMiner.th,
+        });
+        newMiner.avatarUrl = avatarUrl;
+        newMiner.visualTraits = traits;
+        setSynthesizingMiner(newMiner);
+        setSynthesisModalOpen(true);
+      }
 
       setMiners((prev) => [newMiner, ...prev]);
       setOpeningBox(null);
@@ -654,7 +1061,19 @@ export default function App() {
       prev.map((m) => (m.id === id ? { ...m, claimed: true } : m))
     );
     addToast(`MISSION CLAIMED // +${target.reward} WAR`);
-    recordTx('MISSION', target.reward, `Mission ${target.title}`);
+    const txHash = recordTx('MISSION', target.reward, `Mission ${target.title}`);
+
+    const newRecord: CompletedMissionRecord = {
+      id: `cm-${Date.now()}`,
+      missionId: target.id,
+      title: target.title,
+      desc: target.desc,
+      reward: target.reward,
+      claimedAt: new Date().toLocaleTimeString() + ', Today',
+      txHash: txHash || generateHash(),
+      tier: target.tier,
+    };
+    setCompletedMissions((prev) => [newRecord, ...prev]);
   };
 
   // Buy from Marketplace
@@ -737,135 +1156,347 @@ export default function App() {
         connected={connected}
         address={address}
         balance={balance}
+        solBalance={solBalance}
         effectiveTH={effectiveTH}
         rawTH={rawTH}
         warPrice={warPrice}
         burnedWar={burnedWar}
         minedSeconds={minedSeconds}
-        onOpenWallet={() => setWalletModalOpen(true)}
+        userProfile={userProfile}
+        activeWalletName={activeWallet?.name}
+        onOpenWallet={() => {
+          setWalletModalTab('wallets');
+          setWalletModalOpen(true);
+        }}
+        onOpenCreateWallet={() => {
+          setWalletModalTab('create');
+          setWalletModalOpen(true);
+        }}
+        onNavigateToProfile={() => setActiveTab('profile')}
         onDisconnect={handleDisconnect}
       />
 
-      {/* Main 3-Column Grid */}
-      <div className="relative z-10 max-w-[1700px] mx-auto px-4 md:px-6 py-5 grid grid-cols-12 gap-5">
-        <MiningConsole
-          mining={mining}
-          onToggleMining={handleToggleMining}
-          onClaim={handleClaim}
-          effectiveTH={effectiveTH}
-          rawTH={rawTH}
-          dailyWarRate={dailyWarRate}
-          avgEfficiency={avgEfficiency}
-          pendingRewards={pendingRewards}
-          totalBoost={totalBoost}
-          totalMaintenance={totalMaintenance}
-          veDiscountPercent={veDiscountPercent}
-          autoCompound={autoCompound}
-          onToggleAutoCompound={() => setAutoCompound(!autoCompound)}
-          miners={miners}
-          veLock={veLock}
-          stakeAmount={stakeAmount}
-          onChangeStakeAmount={setStakeAmount}
-          stakeDays={stakeDays}
-          onChangeStakeDays={setStakeDays}
-          onStake={handleStake}
-          onUnstake={handleUnstake}
-          balance={balance}
-          lpStaked={lpStaked}
-          onToggleLP={() => {
-            const nextLp = !lpStaked;
-            setLpStaked(nextLp);
-            addToast(nextLp ? 'LP STAKED // +5% TH BOOST' : 'LP UNSTAKED');
-            if (nextLp) recordTx('LP-STAKE', 0, 'Staked WAR/USDC LP');
-          }}
-          warPrice={warPrice}
-        />
+      {/* Primary Page Navigation */}
+      <Navigation
+        activePage={activeTab}
+        onChangePage={setActiveTab}
+        mining={mining}
+        minerCount={miners.length}
+        unclaimedMissionsCount={missions.filter((m) => !m.claimed && m.progress >= m.target).length}
+        referralCount={userProfile?.referralHistory?.length || 4}
+      />
 
-        <MinerFleet
-          miners={miners}
-          mining={mining}
-          effectiveTH={effectiveTH}
-          avgEfficiency={avgEfficiency}
-          dailyWarRate={dailyWarRate}
-          totalBoost={totalBoost}
-          mergeMode={mergeMode}
-          mergeSelected={mergeSelected}
-          onToggleMergeMode={() => {
-            setMergeMode(!mergeMode);
-            setMergeSelected([]);
-          }}
-          onSelectForMerge={handleSelectForMerge}
-          onExecuteMerge={handleExecuteMerge}
-          onMint={handleMintMiner}
-          onUpgradeMiner={handleUpgradeMiner}
-          onRepairMiner={handleRepairMiner}
-          onSellMiner={handleSellMiner}
-          onPayMaintenance={handlePayMaintenance}
-          openingBox={openingBox}
-          onOpenLootbox={handleOpenLootbox}
-          missions={missions}
-          streak={streak}
-          onClaimMission={handleClaimMission}
-          userClan={userClan}
-          onJoinClan={(clanId) => {
-            setUserClan(clanId);
-            addToast(`JOINED CLAN`);
-            recordTx('CLAN', 0, `Joined clan ${clanId}`);
-          }}
-          clanWarTimer={clanWarTimer}
-        />
+      {/* Main Dedicated Page View */}
+      <main className="relative z-10 max-w-[1700px] mx-auto px-4 md:px-6 py-6">
+        {/* PAGE 1: MINING CONSOLE & STAKING */}
+        {activeTab === 'mining' && (
+          <div className="grid grid-cols-12 gap-6 items-start">
+            <div className="col-span-12 lg:col-span-4 xl:col-span-4">
+              <MiningConsole
+                mining={mining}
+                onToggleMining={handleToggleMining}
+                onClaim={handleClaim}
+                effectiveTH={effectiveTH}
+                rawTH={rawTH}
+                dailyWarRate={dailyWarRate}
+                avgEfficiency={avgEfficiency}
+                pendingRewards={pendingRewards}
+                totalBoost={totalBoost}
+                totalMaintenance={totalMaintenance}
+                veDiscountPercent={veDiscountPercent}
+                autoCompound={autoCompound}
+                onToggleAutoCompound={() => setAutoCompound(!autoCompound)}
+                miners={miners}
+                veLock={veLock}
+                stakeAmount={stakeAmount}
+                onChangeStakeAmount={setStakeAmount}
+                stakeDays={stakeDays}
+                onChangeStakeDays={setStakeDays}
+                onStake={handleStake}
+                onUnstake={handleUnstake}
+                balance={balance}
+                lpStaked={lpStaked}
+                onToggleLP={() => {
+                  const nextLp = !lpStaked;
+                  setLpStaked(nextLp);
+                  addToast(nextLp ? 'LP STAKED // +5% TH BOOST' : 'LP UNSTAKED');
+                  if (nextLp) recordTx('LP-STAKE', 0, 'Staked WAR/USDC LP');
+                }}
+                warPrice={warPrice}
+                streak={streak}
+                streakBoost={streakBoost}
+                onCheckInStreak={handleCheckInStreak}
+                veBoost={veBoost}
+                lpBoost={lpBoost}
+                clanBoost={clanBoost}
+              />
+            </div>
 
-        <BurnDashboard
-          burnedWar={burnedWar}
-          dayBurned={dayBurned}
-          halvingDays={halvingDays}
-          leaderboardTab={leaderboardTab}
-          onChangeLeaderboardTab={setLeaderboardTab}
-          rawTH={rawTH}
-          dailyWarRate={dailyWarRate}
-          userClan={userClan}
-          referralCode={referralCode}
-          onCopyRef={handleCopyRef}
-        />
+            {/* Mining telemetry status & live fleet power matrix */}
+            <div className="col-span-12 lg:col-span-8 xl:col-span-8 space-y-6">
+              <div className="card rounded-[24px] p-6 inner-shadow space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-white/[0.08]">
+                  <div>
+                    <h3 className="font-display font-black text-lg text-white tracking-wide">
+                      FLEET OPERATIONAL TELEMETRY
+                    </h3>
+                    <p className="font-mono-num text-[11px] text-zinc-400 mt-0.5">
+                      Live ASIC status, real-time TH/s output, and active cryptographic workload across your mining fleet.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setActiveTab('fleet')}
+                      className="px-3.5 py-1.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/10 font-display font-bold text-[11px] text-white transition cursor-pointer"
+                    >
+                      Manage Rigs →
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('upgrades')}
+                      className="px-3.5 py-1.5 rounded-full bg-gradient-to-r from-purple-600 to-[#FF6A00] text-white font-display font-bold text-[11px] hover:opacity-90 transition cursor-pointer shadow"
+                    >
+                      Open Lab Upgrades
+                    </button>
+                  </div>
+                </div>
 
-        {/* 5-Tab Extended Suite */}
-        <TabsSection
-          activeTab={activeTab}
-          onChangeTab={setActiveTab}
-          mining={mining}
-          miners={miners}
-          avgEfficiency={avgEfficiency}
-          history={history}
-          marketRarity={marketRarity}
-          onChangeMarketRarity={setMarketRarity}
-          onBuyMiner={handleBuyMiner}
-          labUpgrades={labUpgrades}
-          onApplyLabUpgrade={handleApplyLabUpgrade}
-          calcHashrate={calcHashrate}
-          onChangeCalcHashrate={setCalcHashrate}
-          calcEfficiency={calcEfficiency}
-          onChangeCalcEfficiency={setCalcEfficiency}
-          calcPowerCost={calcPowerCost}
-          onChangeCalcPowerCost={setCalcPowerCost}
-          warPrice={warPrice}
-          onChangeWarPrice={setWarPrice}
-          halvingDays={halvingDays}
-          burnedWar={burnedWar}
-          dailyWarRate={dailyWarRate}
-          onExportTaxCSV={handleExportTaxCSV}
-          onClearHistory={() => {
-            setHistory([]);
-            addToast('HISTORY CLEARED');
-          }}
-        />
-      </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3.5 rounded-[14px] bg-[#141418] border border-white/5">
+                    <div className="text-[10px] font-mono-num text-zinc-400">ACTIVE MINERS</div>
+                    <div className="font-mono-num text-2xl font-black text-white mt-1">
+                      {miners.filter((m) => m.status === 'ONLINE').length} / {miners.length}
+                    </div>
+                    <div className="text-[10px] font-mono-num text-emerald-400 mt-0.5">Online Status</div>
+                  </div>
 
-      {/* Wallet Modal */}
+                  <div className="p-3.5 rounded-[14px] bg-[#141418] border border-white/5">
+                    <div className="text-[10px] font-mono-num text-zinc-400">FLEET HASHRATE</div>
+                    <div className="font-mono-num text-2xl font-black text-[#14F195] mt-1">
+                      {effectiveTH.toFixed(0)} <span className="text-[12px] text-zinc-400 font-normal">TH/s</span>
+                    </div>
+                    <div className="text-[10px] font-mono-num text-zinc-400 mt-0.5">{rawTH} TH/s Raw</div>
+                  </div>
+
+                  <div className="p-3.5 rounded-[14px] bg-[#141418] border border-white/5">
+                    <div className="text-[10px] font-mono-num text-zinc-400">DAILY RUN-RATE</div>
+                    <div className="font-mono-num text-2xl font-black text-[#FF6A00] mt-1">
+                      {dailyWarRate.toFixed(1)} <span className="text-[12px] text-zinc-400 font-normal">WAR</span>
+                    </div>
+                    <div className="text-[10px] font-mono-num text-zinc-400 mt-0.5">
+                      ≈ ${(dailyWarRate * warPrice).toFixed(2)}/day
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-[14px] bg-[#141418] border border-white/5">
+                    <div className="text-[10px] font-mono-num text-zinc-400">AVG EFFICIENCY</div>
+                    <div className="font-mono-num text-2xl font-black text-purple-300 mt-1">
+                      {avgEfficiency.toFixed(1)} <span className="text-[12px] text-zinc-400 font-normal">W/TH</span>
+                    </div>
+                    <div className="text-[10px] font-mono-num text-zinc-400 mt-0.5">Optimized Cooling</div>
+                  </div>
+                </div>
+
+                <div className="rounded-[16px] bg-[#121214] border border-white/10 p-4">
+                  <div className="flex justify-between items-center text-[11px] font-mono-num text-zinc-400 mb-3">
+                    <span>RIG HARDWARE MATRIX</span>
+                    <span className="text-zinc-500">CONDITION & EFFICIENCY</span>
+                  </div>
+                  <div className="space-y-2.5 max-h-[220px] overflow-auto pr-1">
+                    {miners.map((m) => (
+                      <div
+                        key={m.id}
+                        className="flex items-center justify-between p-2.5 rounded-[10px] bg-black/40 border border-white/5 text-[11.5px] font-mono-num"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              m.status === 'ONLINE' ? 'bg-[#14F195]' : 'bg-zinc-600'
+                            }`}
+                          />
+                          <span className="text-white font-bold">{m.name}</span>
+                          <span className="text-zinc-400 text-[10px] px-1.5 py-0.2 rounded bg-white/5">
+                            {m.rarity}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="text-[#FF6A00] font-bold">{m.th} TH/s</span>
+                          <span className="text-zinc-400">{m.wth} W/TH</span>
+                          <span className={m.condition < 50 ? 'text-rose-400' : 'text-emerald-400'}>
+                            {m.condition.toFixed(0)}% COND
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Quick Live Claimed Stream Log */}
+                <div className="rounded-[16px] bg-[#121214] border border-white/10 p-4">
+                  <div className="flex justify-between items-center text-[11px] font-mono-num text-zinc-400 mb-2">
+                    <span>REAL-TIME TRANSACTION STREAM</span>
+                    <button
+                      onClick={() => setActiveTab('history')}
+                      className="text-purple-400 hover:text-purple-300 text-[10.5px]"
+                    >
+                      View Full Ledger →
+                    </button>
+                  </div>
+                  <div className="space-y-1.5 max-h-[140px] overflow-auto">
+                    {history.slice(0, 5).map((item) => (
+                      <div key={item.id} className="flex justify-between items-center text-[11px] font-mono-num py-1 border-b border-white/[0.03]">
+                        <span className="text-zinc-400">{item.time}</span>
+                        <span className="text-white truncate max-w-[240px]">{item.desc}</span>
+                        <span className={item.amount >= 0 ? 'text-emerald-400 font-bold' : 'text-zinc-400'}>
+                          {item.amount > 0 ? '+' : ''}{item.amount.toFixed(2)} WAR
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* PAGE 2: FLEET MANAGER */}
+        {activeTab === 'fleet' && (
+          <div className="w-full">
+            <MinerFleet
+              miners={miners}
+              mining={mining}
+              effectiveTH={effectiveTH}
+              avgEfficiency={avgEfficiency}
+              dailyWarRate={dailyWarRate}
+              totalBoost={totalBoost}
+              mergeMode={mergeMode}
+              mergeSelected={mergeSelected}
+              onToggleMergeMode={() => {
+                setMergeMode(!mergeMode);
+                setMergeSelected([]);
+              }}
+              onSelectForMerge={handleSelectForMerge}
+              onExecuteMerge={handleExecuteMerge}
+              onMint={handleMintMiner}
+              onUpgradeMiner={handleUpgradeMiner}
+              onRepairMiner={handleRepairMiner}
+              onSellMiner={handleSellMiner}
+              onPayMaintenance={handlePayMaintenance}
+              openingBox={openingBox}
+              onOpenLootbox={handleOpenLootbox}
+              missions={missions}
+              streak={streak}
+              onClaimMission={handleClaimMission}
+              userClan={userClan}
+              onJoinClan={(clanId) => {
+                setUserClan(clanId);
+                addToast(`JOINED CLAN`);
+                recordTx('CLAN', 0, `Joined clan ${clanId}`);
+              }}
+              clanWarTimer={clanWarTimer}
+              onInspectMiner={(m) => {
+                setSynthesizingMiner(m);
+                setSynthesisModalOpen(true);
+              }}
+            />
+          </div>
+        )}
+
+        {/* PAGE 3: BURNS & CLAN LEADERBOARDS */}
+        {activeTab === 'burn' && (
+          <div className="w-full max-w-[1200px] mx-auto">
+            <BurnDashboard
+              burnedWar={burnedWar}
+              dayBurned={dayBurned}
+              halvingDays={halvingDays}
+              leaderboardTab={leaderboardTab}
+              onChangeLeaderboardTab={setLeaderboardTab}
+              rawTH={rawTH}
+              dailyWarRate={dailyWarRate}
+              userClan={userClan}
+              referralCode={referralCode}
+              onCopyRef={handleCopyRef}
+            />
+          </div>
+        )}
+
+        {/* PAGES 4 TO 11: MARKETPLACE, UPGRADES, MISSIONS, CALCULATOR, REFERRALS, HISTORY, PROFILE, SETTINGS */}
+        {activeTab !== 'mining' && activeTab !== 'fleet' && activeTab !== 'burn' && (
+          <TabsSection
+            activeTab={activeTab}
+            onChangeTab={setActiveTab}
+            mining={mining}
+            miners={miners}
+            avgEfficiency={avgEfficiency}
+            history={history}
+            marketRarity={marketRarity}
+            onChangeMarketRarity={setMarketRarity}
+            onBuyMiner={handleBuyMiner}
+            labUpgrades={labUpgrades}
+            onApplyLabUpgrade={handleApplyLabUpgrade}
+            calcHashrate={calcHashrate}
+            onChangeCalcHashrate={setCalcHashrate}
+            calcEfficiency={calcEfficiency}
+            onChangeCalcEfficiency={setCalcEfficiency}
+            calcPowerCost={calcPowerCost}
+            onChangeCalcPowerCost={setCalcPowerCost}
+            warPrice={warPrice}
+            onChangeWarPrice={setWarPrice}
+            halvingDays={halvingDays}
+            burnedWar={burnedWar}
+            dailyWarRate={dailyWarRate}
+            onExportTaxCSV={handleExportTaxCSV}
+            onClearHistory={() => {
+              setHistory([]);
+              addToast('HISTORY CLEARED');
+            }}
+            completedMissions={completedMissions}
+            missions={missions}
+            streak={streak}
+            streakBoost={streakBoost}
+            onCheckInStreak={handleCheckInStreak}
+            onClaimMission={handleClaimMission}
+            userProfile={userProfile}
+            onUpdateProfile={handleUpdateProfile}
+            activeWallet={activeWallet}
+            wallets={wallets}
+            onOpenWalletModal={(tab) => {
+              setWalletModalTab(tab || 'create');
+              setWalletModalOpen(true);
+            }}
+            onAirdropSol={handleAirdropSol}
+            onSendSolanaTx={handleSendSolanaTx}
+            userClan={userClan}
+            effectiveTH={effectiveTH}
+            rawTH={rawTH}
+          />
+        )}
+      </main>
+
+      {/* Solana Wallet Modal */}
       <WalletModal
         isOpen={walletModalOpen}
         connectingWallet={connectingWallet}
         onClose={() => setWalletModalOpen(false)}
         onConnect={handleConnectWallet}
+        wallets={wallets}
+        activeWalletId={activeWallet?.id || null}
+        onSelectWallet={handleSelectWallet}
+        onSaveNewWallet={handleSaveNewWallet}
+        onAirdropSol={handleAirdropSol}
+        onDeleteWallet={handleDeleteWallet}
+        initialTab={walletModalTab}
+        onNavigateToProfile={() => setActiveTab('profile')}
+      />
+
+      {/* Minting Image Synthesis Modal for Legendary & Epic Miners */}
+      <MintingImageSynthesisModal
+        isOpen={synthesisModalOpen}
+        miner={synthesizingMiner}
+        onClose={() => setSynthesisModalOpen(false)}
+        onDeployToFleet={() => {
+          setSynthesisModalOpen(false);
+          setActiveTab('mining');
+        }}
       />
 
       {/* Toasts */}

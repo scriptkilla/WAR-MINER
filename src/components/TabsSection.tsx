@@ -1,10 +1,36 @@
-import React from 'react';
-import { Miner, TxItem, Rarity } from '../types';
-import { MARKET_LISTINGS, LAB_UPGRADES_DATA } from '../constants';
+import React, { useState } from 'react';
+import {
+  Miner,
+  TxItem,
+  Rarity,
+  CompletedMissionRecord,
+  Mission,
+  SolanaWalletAccount,
+  UserProfile,
+  AppPage,
+} from '../types';
+import { MARKET_LISTINGS, LAB_UPGRADES_DATA, MISSION_TIER_STYLES } from '../constants';
+import { ProfilePage } from './ProfilePage';
+import {
+  ShoppingBag,
+  FlaskConical,
+  Target,
+  Calculator,
+  History,
+  Download,
+  Search,
+  ExternalLink,
+  Copy,
+  Check,
+  Zap,
+  Award,
+  Calendar,
+  Flame,
+} from 'lucide-react';
 
 interface TabsSectionProps {
-  activeTab: 'mining' | 'market' | 'upgrades' | 'stats' | 'history';
-  onChangeTab: (tab: 'mining' | 'market' | 'upgrades' | 'stats' | 'history') => void;
+  activeTab: AppPage;
+  onChangeTab: (tab: AppPage) => void;
   mining: boolean;
   miners: Miner[];
   avgEfficiency: number;
@@ -27,6 +53,22 @@ interface TabsSectionProps {
   dailyWarRate: number;
   onExportTaxCSV: () => void;
   onClearHistory: () => void;
+  completedMissions: CompletedMissionRecord[];
+  missions?: Mission[];
+  streak?: number;
+  streakBoost?: number;
+  onCheckInStreak?: () => void;
+  onClaimMission?: (id: string) => void;
+  userProfile?: UserProfile;
+  onUpdateProfile?: (updated: Partial<UserProfile>) => void;
+  activeWallet?: SolanaWalletAccount | null;
+  wallets?: SolanaWalletAccount[];
+  onOpenWalletModal?: (tab?: 'create' | 'import' | 'connect' | 'wallets') => void;
+  onAirdropSol?: (walletId: string) => void;
+  onSendSolanaTx?: (recipient: string, amount: number, token: 'SOL' | 'WAR') => boolean;
+  userClan?: string;
+  effectiveTH?: number;
+  rawTH?: number;
 }
 
 export const TabsSection: React.FC<TabsSectionProps> = ({
@@ -54,15 +96,23 @@ export const TabsSection: React.FC<TabsSectionProps> = ({
   dailyWarRate,
   onExportTaxCSV,
   onClearHistory,
+  completedMissions,
+  missions = [],
+  streak = 5,
+  streakBoost = 0.1,
+  onCheckInStreak = () => {},
+  onClaimMission,
+  userProfile,
+  onUpdateProfile = () => {},
+  activeWallet = null,
+  wallets = [],
+  onOpenWalletModal = () => {},
+  onAirdropSol = () => {},
+  onSendSolanaTx = () => false,
+  userClan = 'alpha',
+  effectiveTH = 0,
+  rawTH = 0,
 }) => {
-  const tabsList = [
-    { id: 'mining' as const, label: 'Mining Dashboard' },
-    { id: 'market' as const, label: 'Marketplace' },
-    { id: 'upgrades' as const, label: 'Upgrades Lab' },
-    { id: 'stats' as const, label: 'ROI Calculator' },
-    { id: 'history' as const, label: 'Tx History + Tax' },
-  ];
-
   // Market filter
   const filteredListings =
     marketRarity === 'All'
@@ -78,489 +128,793 @@ export const TabsSection: React.FC<TabsSectionProps> = ({
   const estHardwareCostUsd = calcHashrate * 4.2 * warPrice;
   const paybackDays = calcDailyNetUsd > 0 ? estHardwareCostUsd / calcDailyNetUsd : 999;
 
-  return (
-    <div className="col-span-12">
-      <div className="card rounded-[20px] overflow-hidden inner-shadow">
-        {/* Tab Buttons */}
-        <div className="flex items-center gap-1 p-2 border-b border-white/[0.06] overflow-x-auto">
-          {tabsList.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => onChangeTab(tab.id)}
-              className={`shrink-0 h-9 px-4 rounded-full font-display font-bold text-[12px] tracking-wide transition cursor-pointer ${
-                activeTab === tab.id
-                  ? 'bg-white text-black'
-                  : 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-200 border border-white/5'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+  // Completed Missions View State
+  const [missionCategoryFilter, setMissionCategoryFilter] = useState<string>('All');
+  const [missionSearchQuery, setMissionSearchQuery] = useState<string>('');
+  const [copiedTxHash, setCopiedTxHash] = useState<string | null>(null);
 
-          <div className="ml-auto hidden md:flex items-center gap-2 font-mono-num text-[10px] text-zinc-500 pr-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            ARIES MAINNET // FINALITY 1.2s • EFF{' '}
-            {((28 / Math.max(14, avgEfficiency)) * 100).toFixed(0)}% •{' '}
-            {mining ? 'MINING' : 'IDLE'}
+  const totalClaimedMissionRewards = completedMissions.reduce((acc, m) => acc + m.reward, 0);
+
+  const filteredCompletedMissions = completedMissions.filter((item) => {
+    const matchesCategory =
+      missionCategoryFilter === 'All' || item.tier === missionCategoryFilter;
+    const query = missionSearchQuery.toLowerCase().trim();
+    const matchesQuery =
+      !query ||
+      item.title.toLowerCase().includes(query) ||
+      item.desc.toLowerCase().includes(query) ||
+      item.txHash.toLowerCase().includes(query);
+    return matchesCategory && matchesQuery;
+  });
+
+  const handleCopyTx = (txHash: string) => {
+    navigator.clipboard.writeText(txHash);
+    setCopiedTxHash(txHash);
+    setTimeout(() => setCopiedTxHash(null), 2000);
+  };
+
+  const handleExportMissionsCSV = () => {
+    const csvContent =
+      'id,missionId,title,desc,reward_war,claimedAt,txHash,tier\n' +
+      completedMissions
+        .map(
+          (m) =>
+            `"${m.id}","${m.missionId}","${m.title.replace(/"/g, '""')}","${m.desc.replace(
+              /"/g,
+              '""'
+            )}",${m.reward},"${m.claimedAt}","${m.txHash}","${m.tier}"`
+        )
+        .join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `completed_missions_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // 1. DEDICATED MARKETPLACE PAGE
+  if (activeTab === 'market') {
+    return (
+      <div className="card rounded-[24px] p-6 inner-shadow space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/[0.08]">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-[12px] bg-white/5 border border-white/10 flex items-center justify-center text-white">
+              <ShoppingBag className="w-5 h-5 text-[#FF6A00]" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-display font-black text-lg text-white tracking-wide">
+                  WAR MINER MARKETPLACE
+                </h3>
+                <span className="px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-zinc-400 font-mono-num text-[10px]">
+                  PEER-TO-PEER TRADING
+                </span>
+              </div>
+              <p className="font-mono-num text-[11px] text-zinc-400 mt-0.5">
+                Acquire verified ASIC & Quantum mining rigs directly on Solana Aries PoW.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {(['All', 'Common', 'Rare', 'Epic', 'Legendary'] as const).map((rarity) => (
+              <button
+                key={rarity}
+                type="button"
+                onClick={() => onChangeMarketRarity(rarity)}
+                className={`h-8 px-3 rounded-full font-mono-num text-[11px] font-bold border transition cursor-pointer ${
+                  marketRarity === rarity
+                    ? 'bg-white text-black border-white shadow'
+                    : 'bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10'
+                }`}
+              >
+                {rarity}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Tab Body */}
-        <div className="p-4 md:p-5">
-          {/* TAB 1: MINING DASHBOARD */}
-          {activeTab === 'mining' && (
-            <div className="grid md:grid-cols-3 gap-4 font-mono-num text-[12px]">
-              <div className="rounded-[14px] bg-black/40 border border-white/[0.06] p-4">
-                <div className="text-zinc-500 text-[11px] tracking-widest">
-                  FLEET EFFICIENCY MATRIX
-                </div>
-                <div className="mt-3 space-y-2">
-                  {miners.slice(0, 5).map((m) => (
-                    <div key={m.id} className="flex items-center gap-3">
-                      <div className="w-12 text-zinc-400">#{m.id}</div>
-                      <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-[#FF6A00]"
-                          style={{ width: `${100 - m.wth * 2}%` }}
-                        />
-                      </div>
-                      <div className="w-20 text-right text-white">
-                        {m.wth} W/TH • {m.condition.toFixed(0)}%
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-[14px] bg-black/40 border border-white/[0.06] p-4">
-                <div className="text-zinc-500 text-[11px] tracking-widest">
-                  REWARDS LOG (LIVE)
-                </div>
-                <div className="mt-3 space-y-2 text-[11px] max-h-[120px] overflow-auto">
-                  {history.slice(0, 6).map((item) => (
-                    <div key={item.id} className="flex justify-between gap-2">
-                      <span className={item.amount >= 0 ? 'text-emerald-400' : 'text-zinc-400'}>
-                        {item.amount > 0 ? '+' : ''}
-                        {item.amount.toFixed(2)} WAR • {item.type}
-                      </span>
-                      <span className="text-zinc-600 truncate">{item.time}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-[14px] bg-gradient-to-br from-[#FF6A00]/15 to-orange-900/20 border border-[#FF6A00]/20 p-4">
-                <div className="text-[#FF6A00] text-[11px] tracking-widest font-bold">
-                  TACTICAL TIP
-                </div>
-                <div className="text-white text-[12px] leading-[1.5] mt-2">
-                  Degradation 0.5%/day. Repair cost = (100-cond)*0.8 WAR. Merge 2 same rarity → next tier +10% TH bonus. Auto-compound spends claims on upgrades.
-                </div>
-                <button
-                  onClick={() => onChangeTab('upgrades')}
-                  className="mt-3 h-8 px-3 rounded-full bg-[#FF6A00] text-black font-bold text-[11px] hover:bg-[#FF7A1A] transition cursor-pointer"
-                >
-                  OPEN LAB
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 2: MARKETPLACE */}
-          {activeTab === 'market' && (
-            <div>
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                <h4 className="font-display font-bold text-[13px]">War Miner Marketplace</h4>
-                <div className="flex items-center gap-2">
-                  {(['All', 'Common', 'Rare', 'Epic', 'Legendary'] as const).map((rarity) => (
-                    <button
-                      key={rarity}
-                      onClick={() => onChangeMarketRarity(rarity)}
-                      className={`h-8 px-3 rounded-full font-mono-num text-[11px] font-bold border transition cursor-pointer ${
-                        marketRarity === rarity
-                          ? 'bg-white text-black border-white'
-                          : 'bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10'
-                      }`}
-                    >
-                      {rarity}
-                    </button>
-                  ))}
-                </div>
-                <div className="font-mono-num text-[11px] text-zinc-500">
-                  {filteredListings.length} LISTINGS • FLOOR 360 WAR
-                </div>
-              </div>
-
-              <div className="grid md:grid-cols-4 lg:grid-cols-6 gap-3">
-                {filteredListings.map((listing) => (
-                  <div
-                    key={listing.id}
-                    className="rounded-[16px] bg-[#121214] border border-white/10 p-3"
-                  >
-                    <div
-                      className={`h-[88px] rounded-[10px] bg-gradient-to-br ${listing.color} relative overflow-hidden`}
-                    >
-                      <div
-                        className="absolute inset-0 opacity-50"
-                        style={{
-                          backgroundImage:
-                            'repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0 1px, transparent 1px 10px)',
-                        }}
-                      />
-                      <div className="absolute bottom-2 left-2 font-mono-num text-[11px] text-white font-bold">
-                        {listing.th} TH/s
-                      </div>
-                      <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-black/60 border border-white/10 text-[10px] font-mono-num text-white">
-                        {listing.rarity}
-                      </div>
-                    </div>
-
-                    <div className="mt-2 flex justify-between font-mono-num text-[11px]">
-                      <span className="text-white font-bold truncate">{listing.name}</span>
-                      <span className="text-[#FF6A00]">{(listing.th * 4.2).toFixed(0)} WAR</span>
-                    </div>
-
-                    <div className="font-mono-num text-[10px] text-zinc-500 mt-1">
-                      {listing.wth} W/TH • {listing.maintenance} WAR/d
-                    </div>
-
-                    <button
-                      onClick={() => onBuyMiner(listing)}
-                      className="mt-2 w-full h-8 rounded-full bg-white text-black font-bold text-[11px] hover:bg-zinc-100 transition cursor-pointer"
-                    >
-                      Buy Now
-                    </button>
-                    <a
-                      href={`https://explorer.aries.zone/tx/${listing.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-1 block text-center font-mono-num text-[10px] text-zinc-600 hover:text-zinc-400"
-                    >
-                      Aries Explorer ↗
-                    </a>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: UPGRADES LAB */}
-          {activeTab === 'upgrades' && (
-            <div className="grid md:grid-cols-4 gap-3">
-              {LAB_UPGRADES_DATA.map((upg) => {
-                const count = labUpgrades[upg.id] || 0;
-                const cost = Math.round(upg.baseCost * Math.pow(1.35, count));
-
-                return (
-                  <div
-                    key={upg.id}
-                    className="rounded-[16px] bg-[#121214] border border-white/10 p-4 flex flex-col"
-                  >
-                    <div className="flex justify-between">
-                      <div className="w-10 h-10 rounded-[10px] bg-white/5 border border-white/10 flex items-center justify-center text-[18px]">
-                        {upg.icon}
-                      </div>
-                      <div className="font-mono-num text-[10px] px-2 py-1 rounded-full bg-white/5 border border-white/10 text-zinc-400">
-                        OWNED {count}
-                      </div>
-                    </div>
-
-                    <div className="font-display font-bold text-[13px] mt-3 text-white">
-                      {upg.name}
-                    </div>
-                    <div className="font-mono-num text-[11px] text-zinc-500 mt-1 leading-[1.4]">
-                      {upg.desc}
-                    </div>
-                    <div className="mt-2 font-mono-num text-[10px] text-[#FF6A00]">
-                      {upg.effect} • Scaling 1.35x
-                    </div>
-
-                    <div className="mt-auto pt-3 flex items-center justify-between">
-                      <span className="font-mono-num text-[11px] text-[#FF6A00] font-bold">
-                        {cost} WAR
-                      </span>
-                      <button
-                        onClick={() => onApplyLabUpgrade(upg.id)}
-                        className="h-7 px-3 rounded-full bg-[#FF6A00] text-black font-bold text-[11px] hover:bg-[#FF7A1A] transition cursor-pointer"
-                      >
-                        Apply
-                      </button>
-                    </div>
-
-                    <div className="mt-2 h-1 bg-white/10 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-[#FF6A00]"
-                        style={{ width: `${Math.min(100, count * 12)}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* TAB 4: ROI CALCULATOR */}
-          {activeTab === 'stats' && (
-            <div className="grid md:grid-cols-[360px_1fr] gap-5">
-              <div className="rounded-[16px] bg-[#121214] border border-white/10 p-4">
-                <div className="font-display font-bold text-[12px] tracking-wide">
-                  ROI CALCULATOR
-                </div>
-                <div className="mt-4 space-y-4">
-                  <div>
-                    <div className="font-mono-num text-[11px] text-zinc-500">YOUR TH/s</div>
-                    <input
-                      type="range"
-                      min={10}
-                      max={5000}
-                      value={calcHashrate}
-                      onChange={(e) => onChangeCalcHashrate(parseInt(e.target.value))}
-                      className="w-full accent-[#FF6A00] mt-2 cursor-pointer"
-                    />
-                    <div className="flex justify-between font-mono-num text-[11px] text-white mt-1">
-                      <span>{calcHashrate} TH/s</span>
-                      <span className="text-zinc-500">
-                        ${(calcHashrate * 4.2).toFixed(0)} est. cost
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <div className="font-mono-num text-[10px] text-zinc-500">
-                        EFFICIENCY W/TH
-                      </div>
-                      <input
-                        type="number"
-                        value={calcEfficiency}
-                        onChange={(e) => onChangeCalcEfficiency(parseFloat(e.target.value) || 22)}
-                        className="mt-1 w-full h-8 rounded-full bg-black/40 border border-white/10 px-3 font-mono-num text-[11px] text-white outline-none focus:border-[#FF6A00]/40"
-                      />
-                    </div>
-                    <div>
-                      <div className="font-mono-num text-[10px] text-zinc-500">POWER $/kWh</div>
-                      <input
-                        type="number"
-                        step={0.01}
-                        value={calcPowerCost}
-                        onChange={(e) => onChangeCalcPowerCost(parseFloat(e.target.value) || 0.08)}
-                        className="mt-1 w-full h-8 rounded-full bg-black/40 border border-white/10 px-3 font-mono-num text-[11px] text-white outline-none focus:border-[#FF6A00]/40"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="font-mono-num text-[10px] text-zinc-500">WAR PRICE $</div>
-                    <input
-                      type="number"
-                      step={0.0001}
-                      value={warPrice}
-                      onChange={(e) => onChangeWarPrice(parseFloat(e.target.value) || 0.2847)}
-                      className="mt-1 w-full h-8 rounded-full bg-black/40 border border-white/10 px-3 font-mono-num text-[11px] text-white outline-none focus:border-[#FF6A00]/40"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="rounded-[10px] bg-black/40 border border-white/10 p-3">
-                      <div className="font-mono-num text-[10px] text-zinc-500">DAILY</div>
-                      <div className="font-mono-num font-bold text-white text-[12px]">
-                        {calcDailyWar.toFixed(1)} WAR
-                      </div>
-                      <div className="font-mono-num text-[10px] text-zinc-500">
-                        ${calcDailyNetUsd.toFixed(2)}
-                      </div>
-                    </div>
-                    <div className="rounded-[10px] bg-black/40 border border-white/10 p-3">
-                      <div className="font-mono-num text-[10px] text-zinc-500">MONTHLY</div>
-                      <div className="font-mono-num font-bold text-[#FF6A00] text-[12px]">
-                        ${calcMonthlyNetUsd.toFixed(0)}
-                      </div>
-                      <div className="font-mono-num text-[10px] text-zinc-500">
-                        {(calcDailyWar * 30).toFixed(1)} WAR
-                      </div>
-                    </div>
-                    <div className="rounded-[10px] bg-black/40 border border-white/10 p-3">
-                      <div className="font-mono-num text-[10px] text-zinc-500">YEARLY</div>
-                      <div className="font-mono-num font-bold text-white text-[12px]">
-                        ${calcYearlyNetUsd.toFixed(0)}
-                      </div>
-                      <div className="font-mono-num text-[10px] text-emerald-400">
-                        {estHardwareCostUsd > 0
-                          ? ((calcYearlyNetUsd / estHardwareCostUsd) * 100).toFixed(0)
-                          : 0}
-                        % APY
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-[10px] bg-[#FF6A00]/10 border border-[#FF6A00]/20 p-3 font-mono-num text-[11px] text-zinc-300">
-                    Payback:{' '}
-                    <span className="text-[#FF6A00] font-bold">{paybackDays.toFixed(1)} days</span> •
-                    Cost ${estHardwareCostUsd.toFixed(0)} • Power{' '}
-                    {((calcHashrate * calcEfficiency) / 1000 * 24).toFixed(1)} kWh/d
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-[16px] bg-black/40 border border-white/10 p-4">
-                <div className="font-mono-num text-[11px] tracking-widest text-zinc-500">
-                  PROJECTION // 12 MONTHS • HALVING IMPACT
-                </div>
-                <div className="mt-4 h-[160px] flex items-end gap-[3px]">
-                  {Array.from({ length: 24 }).map((_, idx) => {
-                    const heightPercent =
-                      20 + Math.sin(idx / 3) * 10 + idx * 2.5 + (idx > 12 ? -10 : 0);
-                    return (
-                      <div
-                        key={idx}
-                        className="flex-1 rounded-t-[3px] bg-gradient-to-t from-[#FF6A00]/20 to-[#FF6A00]"
-                        style={{ height: `${heightPercent}%` }}
-                      />
-                    );
-                  })}
-                </div>
-                <div className="mt-3 flex justify-between font-mono-num text-[10px] text-zinc-600">
-                  <span>NOW</span>
-                  <span>HALVING {halvingDays}d</span>
-                  <span>+12M • Burn ↑</span>
-                </div>
-
-                <div className="mt-4 grid grid-cols-3 gap-2 font-mono-num text-[10px]">
-                  <div className="rounded-[8px] bg-[#121214] p-2">
-                    <div className="text-zinc-500">EST. MONTHLY</div>
-                    <div className="text-white font-bold">
-                      ${(dailyWarRate * warPrice * 30).toFixed(0)}
-                    </div>
-                  </div>
-                  <div className="rounded-[8px] bg-[#121214] p-2">
-                    <div className="text-zinc-500">UPTIME</div>
-                    <div className="text-white font-bold">99.94%</div>
-                  </div>
-                  <div className="rounded-[8px] bg-[#121214] p-2">
-                    <div className="text-zinc-500">BURNED</div>
-                    <div className="text-[#FF6A00] font-bold">
-                      {Math.floor(burnedWar).toLocaleString()}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 5: TRANSACTION HISTORY + TAX */}
-          {activeTab === 'history' && (
-            <div className="grid md:grid-cols-[1fr_320px] gap-5">
+        <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3.5">
+          {filteredListings.map((listing) => (
+            <div
+              key={listing.id}
+              className="rounded-[16px] bg-[#121214] border border-white/10 hover:border-white/20 p-3 transition flex flex-col justify-between"
+            >
               <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="font-display font-bold text-[13px]">Transaction History</h4>
-                  <button
-                    onClick={onExportTaxCSV}
-                    className="h-8 px-3 rounded-full bg-white text-black font-bold text-[11px] hover:bg-zinc-100 transition cursor-pointer"
-                  >
-                    Export Tax CSV
-                  </button>
+                <div
+                  className={`h-[96px] rounded-[12px] bg-gradient-to-br ${listing.color} relative overflow-hidden shadow-inner`}
+                >
+                  <div
+                    className="absolute inset-0 opacity-40"
+                    style={{
+                      backgroundImage:
+                        'repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0 1px, transparent 1px 10px)',
+                    }}
+                  />
+                  <div className="absolute bottom-2 left-2 font-mono-num text-[11px] text-white font-bold bg-black/40 px-2 py-0.5 rounded-full backdrop-blur-sm">
+                    {listing.th} TH/s
+                  </div>
+                  <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-black/60 border border-white/10 text-[10px] font-mono-num text-white">
+                    {listing.rarity}
+                  </div>
                 </div>
 
-                <div className="rounded-[12px] border border-white/[0.06] overflow-hidden">
-                  <div className="grid grid-cols-[80px_90px_90px_1fr_90px] gap-2 px-3 py-2 bg-black/40 font-mono-num text-[10px] text-zinc-500 tracking-widest">
-                    <span>TIME</span>
-                    <span>TYPE</span>
-                    <span>AMOUNT</span>
-                    <span>DESC</span>
-                    <span>HASH</span>
-                  </div>
-                  <div className="max-h-[320px] overflow-auto divide-y divide-white/[0.04]">
-                    {history.map((tx) => (
-                      <div
-                        key={tx.id}
-                        className="grid grid-cols-[80px_90px_90px_1fr_90px] gap-2 px-3 py-2 font-mono-num text-[11px] hover:bg-white/[0.02]"
-                      >
-                        <span className="text-zinc-500">{tx.time}</span>
-                        <span
-                          className={`font-bold ${
-                            tx.amount >= 0 ? 'text-emerald-400' : 'text-zinc-300'
-                          }`}
-                        >
-                          {tx.type}
-                        </span>
-                        <span className={tx.amount >= 0 ? 'text-white' : 'text-zinc-400'}>
-                          {tx.amount > 0 ? '+' : ''}
-                          {tx.amount.toFixed(2)}
-                        </span>
-                        <span className="text-zinc-400 truncate">{tx.desc}</span>
-                        <a
-                          href={`https://explorer.aries.zone/tx/${tx.hash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-zinc-600 hover:text-[#FF6A00] truncate"
-                        >
-                          {tx.hash.slice(0, 12)}↗
-                        </a>
-                      </div>
-                    ))}
-                  </div>
+                <div className="mt-2.5 flex justify-between items-baseline font-mono-num text-[11px]">
+                  <span className="text-white font-bold truncate">{listing.name}</span>
+                  <span className="text-[#FF6A00] font-bold">{(listing.th * 4.2).toFixed(0)} WAR</span>
+                </div>
+
+                <div className="font-mono-num text-[10px] text-zinc-400 mt-1 flex justify-between">
+                  <span>{listing.wth} W/TH</span>
+                  <span>{listing.maintenance} WAR/d</span>
                 </div>
               </div>
 
-              <div className="rounded-[14px] bg-[#121214] border border-white/10 p-4 font-mono-num text-[11px]">
-                <div className="font-display font-bold text-[12px] text-white">Tax Summary</div>
-                <div className="mt-3 space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Total Earned</span>
-                    <span className="text-white">
-                      {history
-                        .filter((tx) => tx.amount > 0)
-                        .reduce((acc, tx) => acc + tx.amount, 0)
-                        .toFixed(2)}{' '}
-                      WAR
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Total Spent</span>
-                    <span className="text-white">
-                      {Math.abs(
-                        history
-                          .filter((tx) => tx.amount < 0)
-                          .reduce((acc, tx) => acc + tx.amount, 0)
-                      ).toFixed(2)}{' '}
-                      WAR
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Burned Fees (5%)</span>
-                    <span className="text-[#FF6A00]">
-                      {(
-                        history
-                          .filter((tx) => tx.amount < 0)
-                          .reduce((acc, tx) => acc + Math.abs(tx.amount), 0) * 0.05
-                      ).toFixed(2)}{' '}
-                      WAR
-                    </span>
-                  </div>
-                  <div className="h-px bg-white/10 my-2" />
-                  <div className="flex justify-between font-bold">
-                    <span className="text-zinc-300">Net</span>
-                    <span className="text-emerald-400">
-                      {history.reduce((acc, tx) => acc + tx.amount, 0).toFixed(2)} WAR
-                    </span>
-                  </div>
-                </div>
-
-                <div className="mt-4 rounded-[10px] bg-black/40 border border-white/[0.06] p-3 text-[10px] text-zinc-500 leading-[1.5]">
-                  CSV includes timestamp, type, amount, description, Aries explorer hash. For tax purposes. Mock data for demo.
-                </div>
-
+              <div className="mt-3 space-y-1">
                 <button
-                  onClick={onClearHistory}
-                  className="mt-3 w-full h-8 rounded-full bg-white/5 border border-white/10 font-bold text-[11px] text-zinc-400 hover:bg-white/10 transition cursor-pointer"
+                  type="button"
+                  onClick={() => onBuyMiner(listing)}
+                  className="w-full h-8 rounded-full bg-white text-black font-display font-bold text-[11px] hover:bg-zinc-200 transition cursor-pointer shadow"
                 >
-                  Clear History (local)
+                  Buy Rig • ${(listing.th * 4.2 * warPrice).toFixed(1)}
                 </button>
+                <a
+                  href={`https://explorer.solana.com/tx/${listing.id}?cluster=devnet`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-center font-mono-num text-[9.5px] text-zinc-500 hover:text-[#FF6A00] transition"
+                >
+                  View Solscan ↗
+                </a>
               </div>
             </div>
-          )}
+          ))}
         </div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  // 2. DEDICATED UPGRADES LAB PAGE
+  if (activeTab === 'upgrades') {
+    return (
+      <div className="card rounded-[24px] p-6 inner-shadow space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/[0.08]">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-[12px] bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+              <FlaskConical className="w-5 h-5 text-purple-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-display font-black text-lg text-white tracking-wide">
+                  CYBERNETIC UPGRADES LAB
+                </h3>
+                <span className="px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-500/30 text-purple-300 font-mono-num text-[10px] font-bold">
+                  R&D RESEARCH BAY
+                </span>
+              </div>
+              <p className="font-mono-num text-[11px] text-zinc-400 mt-0.5">
+                Research hardware enhancements to boost hashrates, reduce cooling power draw, and optimize maintenance.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {LAB_UPGRADES_DATA.map((upg) => {
+            const count = labUpgrades[upg.id] || 0;
+            const cost = Math.round(upg.baseCost * Math.pow(1.35, count));
+
+            return (
+              <div
+                key={upg.id}
+                className="rounded-[18px] bg-[#121214] border border-white/10 hover:border-purple-500/30 p-5 flex flex-col justify-between transition"
+              >
+                <div>
+                  <div className="flex justify-between items-center">
+                    <div className="w-11 h-11 rounded-[12px] bg-white/5 border border-white/10 flex items-center justify-center text-[20px]">
+                      {upg.icon}
+                    </div>
+                    <div className="font-mono-num text-[10.5px] px-2.5 py-1 rounded-full bg-purple-500/20 border border-purple-500/30 text-purple-300 font-bold">
+                      TIER {count}
+                    </div>
+                  </div>
+
+                  <div className="font-display font-bold text-[15px] mt-4 text-white">
+                    {upg.name}
+                  </div>
+                  <div className="font-mono-num text-[11px] text-zinc-400 mt-1.5 leading-[1.5]">
+                    {upg.desc}
+                  </div>
+                  <div className="mt-3 font-mono-num text-[11px] text-[#14F195] font-bold">
+                    {upg.effect} • Scaling 1.35x
+                  </div>
+                </div>
+
+                <div className="mt-6 pt-4 border-t border-white/5">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-mono-num text-[13px] text-[#FF6A00] font-bold">
+                      {cost} WAR
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onApplyLabUpgrade(upg.id)}
+                      className="h-8 px-4 rounded-full bg-gradient-to-r from-purple-600 to-[#FF6A00] text-white font-display font-bold text-[11px] hover:opacity-90 transition cursor-pointer shadow"
+                    >
+                      Research Upgrade
+                    </button>
+                  </div>
+
+                  <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-purple-500 to-[#14F195] transition-all"
+                      style={{ width: `${Math.min(100, count * 12)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // 3. DEDICATED MISSIONS & QUESTS PAGE
+  if (activeTab === 'missions') {
+    return (
+      <div className="space-y-6">
+        {/* Top Active Protocol Missions */}
+        <div className="card rounded-[24px] p-6 inner-shadow space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/[0.08]">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-[12px] bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                <Target className="w-5 h-5 text-[#14F195]" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-display font-black text-lg text-white tracking-wide">
+                    MISSIONS & PROTOCOL QUESTS
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-mono-num text-[10px] font-bold">
+                    DAILY OBJECTIVES
+                  </span>
+                </div>
+                <p className="font-mono-num text-[11px] text-zinc-400 mt-0.5">
+                  Complete active operational mining objectives, earn verified $WAR rewards, and review your audit record.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 font-mono-num text-[11px]">
+              <span className="text-zinc-400">STREAK:</span>
+              <span className="text-amber-400 font-bold flex items-center gap-1">
+                <span>🔥</span>
+                <span>{streak} DAYS (+{(streakBoost * 100).toFixed(0)}%)</span>
+              </span>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            {missions.map((m) => {
+              const pct = Math.min(100, (m.progress / m.target) * 100);
+              const tierInfo = MISSION_TIER_STYLES[m.tier] || MISSION_TIER_STYLES.Common;
+
+              return (
+                <div
+                  key={m.id}
+                  className={`p-4 rounded-[16px] bg-[#121214] border transition flex flex-col justify-between ${
+                    m.claimed
+                      ? 'border-white/5 opacity-60'
+                      : pct >= 100
+                      ? 'border-emerald-500/40 bg-emerald-950/10'
+                      : 'border-white/10'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-mono-num font-bold ${tierInfo.badge}`}>
+                        {tierInfo.icon} {m.tier.toUpperCase()} • {m.multiplier}
+                      </span>
+                      <span className="font-mono-num text-[11px] text-[#FF6A00] font-bold">
+                        +{m.reward} WAR
+                      </span>
+                    </div>
+
+                    <div className="font-display font-bold text-[14px] text-white mt-3">
+                      {m.title}
+                    </div>
+                    <div className="font-mono-num text-[11px] text-zinc-400 mt-1">
+                      {m.desc}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-white/5 space-y-2">
+                    <div className="flex justify-between font-mono-num text-[10px] text-zinc-400">
+                      <span>{pct.toFixed(0)}% PROGRESS</span>
+                      <span>
+                        {m.progress.toFixed(0)} / {m.target}
+                      </span>
+                    </div>
+                    <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-purple-500 to-[#14F195]"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+
+                    <div className="pt-1">
+                      {m.claimed ? (
+                        <div className="text-center font-mono-num text-[11px] text-emerald-400 font-bold py-1">
+                          ✓ REWARD CLAIMED
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={m.progress < m.target || !onClaimMission}
+                          onClick={() => onClaimMission && onClaimMission(m.id)}
+                          className="w-full h-8 rounded-full bg-white text-black font-display font-bold text-[11px] hover:bg-zinc-200 disabled:opacity-30 disabled:hover:bg-white transition cursor-pointer shadow"
+                        >
+                          {m.progress >= m.target ? 'Claim Reward' : 'In Progress...'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Completed Missions History Table */}
+        <div className="card rounded-[24px] p-6 inner-shadow space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/[0.08]">
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="font-display font-black text-base text-white tracking-wide">
+                  VERIFIED COMPLETED MISSIONS AUDIT LEDGER
+                </h4>
+                <span className="px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-500/30 text-purple-300 font-mono-num text-[10px] font-bold">
+                  {completedMissions.length} COMPLETED
+                </span>
+              </div>
+              <p className="font-mono-num text-[11px] text-zinc-400 mt-0.5">
+                Immutable cryptographic ledger of claimed mission payouts verified on Solana.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleExportMissionsCSV}
+                className="h-8 px-3 rounded-full bg-white/10 hover:bg-white/20 border border-white/10 font-mono-num text-[11px] text-white flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export CSV</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+              {['All', 'Legendary', 'Rare', 'Common'].map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setMissionCategoryFilter(cat)}
+                  className={`h-7 px-3 rounded-full font-mono-num text-[10px] font-bold border transition cursor-pointer ${
+                    missionCategoryFilter === cat
+                      ? 'bg-purple-600 text-white border-transparent'
+                      : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative w-full sm:w-64">
+              <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={missionSearchQuery}
+                onChange={(e) => setMissionSearchQuery(e.target.value)}
+                placeholder="Search missions or tx..."
+                className="w-full bg-[#121216] border border-white/10 rounded-[10px] pl-8 pr-3 py-1.5 font-mono-num text-[11px] text-white focus:outline-none focus:border-purple-500"
+              />
+            </div>
+          </div>
+
+          <div className="rounded-[16px] border border-white/[0.08] overflow-hidden">
+            <div className="grid grid-cols-[1fr_120px_140px_100px] gap-3 px-4 py-2.5 bg-black/50 font-mono-num text-[10.5px] text-zinc-400 tracking-wider">
+              <span>MISSION OBJECTIVE</span>
+              <span>DATE</span>
+              <span>REWARD</span>
+              <span className="text-right">TX PROOF</span>
+            </div>
+
+            <div className="divide-y divide-white/[0.04] max-h-[360px] overflow-auto">
+              {filteredCompletedMissions.map((item) => (
+                <div
+                  key={item.id}
+                  className="grid grid-cols-[1fr_120px_140px_100px] gap-3 px-4 py-3 font-mono-num text-[11.5px] hover:bg-white/[0.02] items-center"
+                >
+                  <div>
+                    <div className="font-display font-bold text-white text-[13px]">{item.title}</div>
+                    <div className="text-[10.5px] text-zinc-400">{item.desc}</div>
+                  </div>
+                  <div className="text-zinc-400 text-[11px]">{item.claimedAt}</div>
+                  <div className="text-[#FF6A00] font-bold text-[13px]">
+                    +{item.reward} $WAR
+                  </div>
+                  <div className="text-right">
+                    <button
+                      type="button"
+                      onClick={() => handleCopyTx(item.txHash)}
+                      className="text-purple-400 hover:text-purple-300 text-[10.5px] font-mono-num inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      {copiedTxHash === item.txHash ? (
+                        <span className="text-emerald-400">Copied!</span>
+                      ) : (
+                        <span>{item.txHash.slice(0, 8)}...</span>
+                      )}
+                      <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 4. DEDICATED ROI CALCULATOR PAGE
+  if (activeTab === 'calculator') {
+    return (
+      <div className="card rounded-[24px] p-6 inner-shadow space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/[0.08]">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-[12px] bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+              <Calculator className="w-5 h-5 text-amber-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-display font-black text-lg text-white tracking-wide">
+                  MINING ROI & PROFITABILITY CALCULATOR
+                </h3>
+                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 font-mono-num text-[10px] font-bold">
+                  ECONOMIC SIMULATOR
+                </span>
+              </div>
+              <p className="font-mono-num text-[11px] text-zinc-400 mt-0.5">
+                Simulate hashrate, electrical consumption, and token valuation to project net daily, monthly, and annual returns.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid md:grid-cols-[380px_1fr] gap-6">
+          <div className="rounded-[18px] bg-[#121214] border border-white/10 p-5 space-y-4">
+            <div>
+              <div className="font-mono-num text-[11px] text-zinc-400 font-bold">
+                SIMULATED HASHRATE (TH/s)
+              </div>
+              <input
+                type="range"
+                min={10}
+                max={5000}
+                value={calcHashrate}
+                onChange={(e) => onChangeCalcHashrate(parseInt(e.target.value))}
+                className="w-full accent-[#FF6A00] mt-2 cursor-pointer"
+              />
+              <div className="flex justify-between font-mono-num text-[12px] text-white mt-1">
+                <span className="font-bold text-[#FF6A00]">{calcHashrate} TH/s</span>
+                <span className="text-zinc-500">${(calcHashrate * 4.2).toFixed(0)} est. rig cost</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="font-mono-num text-[10px] text-zinc-400 font-bold">EFFICIENCY (W/TH)</div>
+                <input
+                  type="number"
+                  value={calcEfficiency}
+                  onChange={(e) => onChangeCalcEfficiency(parseFloat(e.target.value) || 22)}
+                  className="mt-1 w-full h-8 rounded-full bg-black/40 border border-white/10 px-3 font-mono-num text-[11px] text-white outline-none focus:border-[#FF6A00]/40"
+                />
+              </div>
+              <div>
+                <div className="font-mono-num text-[10px] text-zinc-400 font-bold">POWER ($/kWh)</div>
+                <input
+                  type="number"
+                  step={0.01}
+                  value={calcPowerCost}
+                  onChange={(e) => onChangeCalcPowerCost(parseFloat(e.target.value) || 0.08)}
+                  className="mt-1 w-full h-8 rounded-full bg-black/40 border border-white/10 px-3 font-mono-num text-[11px] text-white outline-none focus:border-[#FF6A00]/40"
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="font-mono-num text-[10px] text-zinc-400 font-bold">WAR TOKEN PRICE ($)</div>
+              <input
+                type="number"
+                step={0.0001}
+                value={warPrice}
+                onChange={(e) => onChangeWarPrice(parseFloat(e.target.value) || 0.2847)}
+                className="mt-1 w-full h-8 rounded-full bg-black/40 border border-white/10 px-3 font-mono-num text-[11px] text-white outline-none focus:border-[#FF6A00]/40"
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 pt-2">
+              <div className="rounded-[12px] bg-black/40 border border-white/10 p-3">
+                <div className="font-mono-num text-[10px] text-zinc-500 font-bold">DAILY</div>
+                <div className="font-mono-num font-bold text-white text-[13px] mt-0.5">
+                  {calcDailyWar.toFixed(1)} WAR
+                </div>
+                <div className="font-mono-num text-[10px] text-emerald-400">
+                  ${calcDailyNetUsd.toFixed(2)}
+                </div>
+              </div>
+
+              <div className="rounded-[12px] bg-black/40 border border-white/10 p-3">
+                <div className="font-mono-num text-[10px] text-zinc-500 font-bold">MONTHLY</div>
+                <div className="font-mono-num font-bold text-[#FF6A00] text-[13px] mt-0.5">
+                  ${calcMonthlyNetUsd.toFixed(0)}
+                </div>
+                <div className="font-mono-num text-[10px] text-zinc-400">
+                  {(calcDailyWar * 30).toFixed(0)} WAR
+                </div>
+              </div>
+
+              <div className="rounded-[12px] bg-black/40 border border-white/10 p-3">
+                <div className="font-mono-num text-[10px] text-zinc-500 font-bold">ANNUAL</div>
+                <div className="font-mono-num font-bold text-white text-[13px] mt-0.5">
+                  ${calcYearlyNetUsd.toFixed(0)}
+                </div>
+                <div className="font-mono-num text-[10px] text-emerald-400">
+                  {estHardwareCostUsd > 0
+                    ? ((calcYearlyNetUsd / estHardwareCostUsd) * 100).toFixed(0)
+                    : 0}
+                  % APY
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[12px] bg-[#FF6A00]/10 border border-[#FF6A00]/20 p-3 font-mono-num text-[11px] text-zinc-300">
+              Payback Period:{' '}
+              <strong className="text-[#FF6A00]">{paybackDays.toFixed(1)} days</strong> • Estimated Rig Cost{' '}
+              <strong>${estHardwareCostUsd.toFixed(0)}</strong>
+            </div>
+          </div>
+
+          <div className="rounded-[18px] bg-black/40 border border-white/10 p-5 flex flex-col justify-between">
+            <div>
+              <div className="font-mono-num text-[11px] tracking-widest text-zinc-400 font-bold">
+                12-MONTH PROJECTION CURVE // SOLANA HALVING IMPACT
+              </div>
+              <div className="mt-6 h-[200px] flex items-end gap-[4px] px-2">
+                {Array.from({ length: 28 }).map((_, idx) => {
+                  const heightPercent =
+                    25 + Math.sin(idx / 3) * 12 + idx * 2.2 + (idx > 14 ? -8 : 0);
+                  return (
+                    <div
+                      key={idx}
+                      className="flex-1 rounded-t-[3px] bg-gradient-to-t from-purple-600/30 via-[#FF6A00]/40 to-[#14F195] hover:opacity-100 transition cursor-pointer"
+                      style={{ height: `${heightPercent}%` }}
+                      title={`Month ${(idx / 2.3).toFixed(1)} Yield Matrix`}
+                    />
+                  );
+                })}
+              </div>
+              <div className="mt-3 flex justify-between font-mono-num text-[10px] text-zinc-500 px-2">
+                <span>TODAY</span>
+                <span>HALVING IN {halvingDays} DAYS</span>
+                <span>+12M RUNWAY</span>
+              </div>
+            </div>
+
+            <div className="mt-6 grid grid-cols-3 gap-3 font-mono-num text-[11px]">
+              <div className="rounded-[10px] bg-[#121214] p-3 border border-white/5">
+                <div className="text-zinc-500 text-[10px]">EST. MONTHLY REVENUE</div>
+                <div className="text-white font-bold text-base mt-1">
+                  ${(dailyWarRate * warPrice * 30).toFixed(0)}
+                </div>
+              </div>
+              <div className="rounded-[10px] bg-[#121214] p-3 border border-white/5">
+                <div className="text-zinc-500 text-[10px]">PROTOCOL UPTIME</div>
+                <div className="text-emerald-400 font-bold text-base mt-1">99.98%</div>
+              </div>
+              <div className="rounded-[10px] bg-[#121214] p-3 border border-white/5">
+                <div className="text-zinc-500 text-[10px]">CUMULATIVE BURNED</div>
+                <div className="text-[#FF6A00] font-bold text-base mt-1">
+                  {Math.floor(burnedWar).toLocaleString()}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 5. DEDICATED TRANSACTION HISTORY & TAX ACCOUNTING PAGE
+  if (activeTab === 'history') {
+    return (
+      <div className="card rounded-[24px] p-6 inner-shadow space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/[0.08]">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-[12px] bg-white/5 border border-white/10 flex items-center justify-center text-white">
+              <History className="w-5 h-5 text-purple-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-display font-black text-lg text-white tracking-wide">
+                  TRANSACTION HISTORY & TAX ACCOUNTING
+                </h3>
+                <span className="px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-zinc-400 font-mono-num text-[10px]">
+                  SOLANA AUDIT TRAIL
+                </span>
+              </div>
+              <p className="font-mono-num text-[11px] text-zinc-400 mt-0.5">
+                Complete audit trail of all vault claims, rig mints, marketplace purchases, and staking operations.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onExportTaxCSV}
+              className="h-8 px-4 rounded-full bg-white text-black font-display font-bold text-[11px] hover:bg-zinc-200 transition cursor-pointer flex items-center gap-1.5 shadow"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export Tax CSV</span>
+            </button>
+            <button
+              type="button"
+              onClick={onClearHistory}
+              className="h-8 px-3 rounded-full bg-white/5 hover:bg-rose-500/20 border border-white/10 hover:border-rose-500/30 font-mono-num text-[11px] text-zinc-400 hover:text-rose-300 transition cursor-pointer"
+            >
+              Clear History
+            </button>
+          </div>
+        </div>
+
+        <div className="grid md:grid-cols-[1fr_320px] gap-6">
+          <div className="rounded-[16px] border border-white/[0.08] overflow-hidden">
+            <div className="grid grid-cols-[100px_100px_110px_1fr_110px] gap-2 px-4 py-2.5 bg-black/50 font-mono-num text-[10px] text-zinc-400 tracking-widest">
+              <span>TIME</span>
+              <span>TYPE</span>
+              <span>AMOUNT</span>
+              <span>DESCRIPTION</span>
+              <span className="text-right">HASH</span>
+            </div>
+            <div className="max-h-[460px] overflow-auto divide-y divide-white/[0.04]">
+              {history.map((tx) => (
+                <div
+                  key={tx.id}
+                  className="grid grid-cols-[100px_100px_110px_1fr_110px] gap-2 px-4 py-3 font-mono-num text-[11.5px] hover:bg-white/[0.02] items-center"
+                >
+                  <span className="text-zinc-500 text-[10.5px]">{tx.time}</span>
+                  <span
+                    className={`font-bold ${
+                      tx.amount >= 0 ? 'text-emerald-400' : 'text-zinc-300'
+                    }`}
+                  >
+                    {tx.type}
+                  </span>
+                  <span className={tx.amount >= 0 ? 'text-white font-bold' : 'text-zinc-400'}>
+                    {tx.amount > 0 ? '+' : ''}
+                    {tx.amount.toFixed(2)} WAR
+                  </span>
+                  <span className="text-zinc-300 truncate">{tx.desc}</span>
+                  <a
+                    href={`https://explorer.solana.com/tx/${tx.hash}?cluster=devnet`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-purple-400 hover:text-purple-300 truncate text-right text-[10.5px]"
+                  >
+                    {tx.hash.slice(0, 8)}...↗
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-[18px] bg-[#121214] border border-white/10 p-5 font-mono-num text-[11px] space-y-4">
+            <div className="font-display font-bold text-[14px] text-white">TAX ACCOUNTING SUMMARY</div>
+            <div className="space-y-2.5">
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Total Earned</span>
+                <span className="text-white font-bold">
+                  {history
+                    .filter((tx) => tx.amount > 0)
+                    .reduce((acc, tx) => acc + tx.amount, 0)
+                    .toFixed(2)}{' '}
+                  WAR
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Total Spent</span>
+                <span className="text-white font-bold">
+                  {Math.abs(
+                    history
+                      .filter((tx) => tx.amount < 0)
+                      .reduce((acc, tx) => acc + tx.amount, 0)
+                  ).toFixed(2)}{' '}
+                  WAR
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Burned Protocol Fees (5%)</span>
+                <span className="text-[#FF6A00] font-bold">
+                  {(
+                    history
+                      .filter((tx) => tx.amount < 0)
+                      .reduce((acc, tx) => acc + Math.abs(tx.amount), 0) * 0.05
+                  ).toFixed(2)}{' '}
+                  WAR
+                </span>
+              </div>
+              <div className="h-px bg-white/10 my-2" />
+              <div className="flex justify-between text-base font-bold">
+                <span className="text-zinc-200">Net Balance Impact</span>
+                <span className="text-emerald-400">
+                  {history.reduce((acc, tx) => acc + tx.amount, 0).toFixed(2)} WAR
+                </span>
+              </div>
+            </div>
+
+            <div className="rounded-[12px] bg-black/40 border border-white/[0.06] p-3 text-[10px] text-zinc-400 leading-[1.5]">
+              Exported CSV formatted for standard crypto tax platforms (CoinTracker, Koinly, TokenTax).
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 6. DEDICATED PROFILE, REFERRALS, OR SETTINGS PAGES
+  if (activeTab === 'profile' || activeTab === 'referrals' || activeTab === 'settings') {
+    const viewMapping: Record<'profile' | 'referrals' | 'settings', 'overview' | 'referrals' | 'settings'> = {
+      profile: 'overview',
+      referrals: 'referrals',
+      settings: 'settings',
+    };
+
+    return userProfile ? (
+      <ProfilePage
+        userProfile={userProfile}
+        onUpdateProfile={onUpdateProfile}
+        activeWallet={activeWallet}
+        wallets={wallets}
+        onOpenWalletModal={onOpenWalletModal}
+        onAirdropSol={onAirdropSol}
+        onSendSolanaTx={onSendSolanaTx}
+        miners={miners}
+        effectiveTH={effectiveTH}
+        rawTH={rawTH}
+        warPrice={warPrice}
+        burnedWar={burnedWar}
+        streak={streak}
+        streakBoost={streakBoost}
+        onCheckInStreak={onCheckInStreak}
+        userClan={userClan}
+        history={history}
+        onClearHistory={onClearHistory}
+        initialView={viewMapping[activeTab]}
+        onChangeView={(view) => {
+          if (view === 'overview') onChangeTab('profile');
+          else if (view === 'referrals') onChangeTab('referrals');
+          else if (view === 'settings') onChangeTab('settings');
+        }}
+      />
+    ) : null;
+  }
+
+  return null;
 };

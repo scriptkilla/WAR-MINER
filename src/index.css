@@ -34,4 +34,135 @@
     backdrop-filter: blur(16px);
     background: rgba(18, 18, 20, 0.7);
   }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* Hashrate Real-Time Dynamic Animations */
+@keyframes hashrateWaveStream {
+  0% {
+    background-position: 100% 0%;
+  }
+  100% {
+    background-position: 0% 0%;
+  }
+}
+
+@keyframes hashrateSpecularSweep {
+  0% {
+    transform: translateX(-150%) skewX(-22deg);
+    opacity: 0.15;
+  }
+  30% {
+    opacity: 0.75;
+  }
+  70% {
+    opacity: 0.75;
+  }
+  100% {
+    transform: translateX(350%) skewX(-22deg);
+    opacity: 0.15;
+  }
+}
+
+@keyframes hashrateSparkGlow {
+  0%, 100% {
+    transform: translateY(-50%) translateX(50%) scale(0.85);
+    opacity: 0.8;
+    filter: drop-shadow(0 0 4px var(--spark-color, #14F195));
+  }
+  50% {
+    transform: translateY(-50%) translateX(50%) scale(1.3);
+    opacity: 1;
+    filter: drop-shadow(0 0 10px var(--spark-color, #14F195)) drop-shadow(0 0 16px #FF6A00);
+  }
+}
+
+@keyframes hashrateTrackPulse {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(255, 106, 0, 0.15), inset 0 0 8px rgba(0, 0, 0, 0.6);
+    border-color: rgba(255, 106, 0, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 22px rgba(20, 241, 149, 0.3), 0 0 35px rgba(255, 106, 0, 0.2), inset 0 0 12px rgba(20, 241, 149, 0.1);
+    border-color: rgba(20, 241, 149, 0.45);
+  }
+}
+
+@keyframes hashrateStreamGlow {
+  0%, 100% {
+    filter: brightness(1) drop-shadow(0 0 4px rgba(255, 106, 0, 0.35));
+  }
+  50% {
+    filter: brightness(1.22) drop-shadow(0 0 12px rgba(20, 241, 149, 0.6)) drop-shadow(0 0 18px rgba(153, 69, 255, 0.35));
+  }
+}
+
+@keyframes hashrateEqualizerBar {
+  0%, 100% {
+    height: 25%;
+    opacity: 0.45;
+  }
+  50% {
+    height: 100%;
+    opacity: 1;
+    filter: drop-shadow(0 0 6px #14F195);
+  }
+}
+
+/* Real-Time Hashrate Progress Bar Base Styles */
+.hashrate-bar-animated {
+  background-size: 200% 100%;
+  animation: 
+    hashrateWaveStream var(--hashrate-stream-duration, 1.4s) linear infinite,
+    hashrateStreamGlow var(--hashrate-pulse-speed, 2s) ease-in-out infinite;
+  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1), filter 0.3s ease;
+  will-change: width, background-position, filter;
+}
+
+.hashrate-bar-idle {
+  background-size: 100% 100%;
+  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.hashrate-shimmer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 50%;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%);
+  animation: hashrateSpecularSweep var(--hashrate-stream-duration, 1.4s) cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  pointer-events: none;
+}
+
+.hashrate-spark {
+  animation: hashrateSparkGlow var(--hashrate-pulse-speed, 1.2s) ease-in-out infinite;
+  will-change: transform, filter;
+}
+
+.hashrate-pulse-container {
+  animation: hashrateTrackPulse var(--hashrate-pulse-speed, 2.5s) ease-in-out infinite;
+  will-change: box-shadow, border-color;
+}
+
+/* Micro-scanline pattern over progress bar */
+.hashrate-track-grid {
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 6px,
+    rgba(255, 255, 255, 0.05) 6px,
+    rgba(255, 255, 255, 0.05) 7px
+  );
+}
+
+.equalizer-bar {
+  animation: hashrateEqualizerBar var(--hashrate-pulse-speed, 0.8s) ease-in-out infinite;
+  will-change: height, opacity;
 }
